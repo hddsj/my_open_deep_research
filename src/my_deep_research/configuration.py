@@ -57,7 +57,11 @@ class Configuration(BaseModel):
         default=10,
         description="Maximum number of tool calls a researcher can make before being forced to stop"
     )
-
+    # Research Configuration
+    max_supervisor_iterations: int = Field(
+        default=5,
+        description="Maximum number of iterations for each supervisor"
+    )
     # Model Configuration
     research_model: str = Field(
         default="deepseek-chat",
@@ -67,6 +71,17 @@ class Configuration(BaseModel):
         default=8192,
         description="Max tokens for the research model"
     )
+
+    # Supervisor Configuration
+    supervisor_model: str = Field(
+        default="deepseek-chat",
+        description="Model to use for supervisor tasks"
+    )
+    supervisor_model_max_tokens: int = Field(
+        default=8192,
+        description="Max tokens for the supervisor model"
+    )
+    
     summarization_model: str = Field(
         default="deepseek-chat",
         description="Model to use for summarization tasks"
