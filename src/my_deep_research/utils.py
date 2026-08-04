@@ -253,3 +253,56 @@ def think_tool(reflection: str) -> str:
         Confirmation that reflection was recorded for decision-making
     """
     return f"Reflection recorded: {reflection}"
+
+
+##########################
+# Tool Management Utils
+##########################
+
+async def get_search_tool(search_api: SearchAPI):
+    """Configure and return search tools based on the specified API provider.
+
+    Args:
+        search_api: The search API provider to use
+
+    Returns:
+        List of configured search tool objects
+    """
+    if search_api == SearchAPI.TAVILY:
+        search_tool = tavily_search
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search",
+        }
+        return [search_tool]
+    elif search_api == SearchAPI.NONE:
+        return []
+    return []
+
+
+async def get_all_tools(config: RunnableConfig):
+    """Assemble complete toolkit including search and reflection tools.
+
+    Args:
+        config: Runtime configuration specifying search API settings
+
+    Returns:
+        List of all configured and available tools for research operations
+    """
+    tools = [think_tool]
+
+    configurable = Configuration.from_runnable_config(config)
+    search_api = SearchAPI(get_config_value(configurable.search_api))
+    search_tools = await get_search_tool(search_api)
+    tools.extend(search_tools)
+
+    return tools
+
+
+async def execute_tool_safely(tool, args, config):
+    """Safely execute a tool with error handling."""
+    try:
+        return await tool.ainvoke(args, config)
+    except Exception as e:
+        return f"Error executing tool: {str(e)}"

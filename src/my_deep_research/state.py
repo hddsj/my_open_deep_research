@@ -34,6 +34,17 @@ class ResearchQuestion(BaseModel):
     )
 
 
+class ConductResearch(BaseModel):
+    """Call this tool to conduct research on a specific topic."""
+    research_topic: str = Field(
+        description="The topic to research. Should be a single topic, and should be described in high detail (at least a paragraph).",
+    )
+
+
+class ResearchComplete(BaseModel):
+    """Call this tool to indicate that the research is complete."""
+
+
 class Summary(BaseModel):
     """Structured summary of a webpage's content."""
     
@@ -82,3 +93,20 @@ class SupervisorState(TypedDict):
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     research_brief: str
     notes: Annotated[list[str], override_reducer]
+
+
+class ResearcherState(TypedDict):
+    """State for individual researchers conducting research."""
+    
+    researcher_messages: Annotated[list[MessageLikeRepresentation], operator.add]
+    tool_call_iterations: int
+    research_topic: str
+    compressed_research: str
+    raw_notes: Annotated[list[str], override_reducer]
+
+
+class ResearcherOutputState(BaseModel):
+    """Output state from individual researchers."""
+    
+    compressed_research: str
+    raw_notes: Annotated[list[str], override_reducer] = []

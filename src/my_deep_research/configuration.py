@@ -53,6 +53,10 @@ class Configuration(BaseModel):
         default=5,
         description="Maximum number of iterations for each researcher"
     )
+    max_react_tool_calls: int = Field(
+        default=10,
+        description="Maximum number of tool calls a researcher can make before being forced to stop"
+    )
 
     # Model Configuration
     research_model: str = Field(
