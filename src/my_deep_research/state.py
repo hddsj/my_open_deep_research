@@ -31,6 +31,17 @@ class ResearchQuestion(BaseModel):
     )
 
 
+class Summary(BaseModel):
+    """Structured summary of a webpage's content."""
+    
+    summary: str = Field(
+        description="Concise summary preserving key information from the webpage"
+    )
+    key_excerpts: str = Field(
+        description="Important quotes or data points from the webpage"
+    )
+
+
 # ── Graph state definitions ──
 
 

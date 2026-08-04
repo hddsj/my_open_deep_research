@@ -43,6 +43,10 @@ class Configuration(BaseModel):
         default=5,
         description="Maximum number of search results to return per query"
     )
+    max_content_length: int = Field(
+        default=50000,
+        description="Maximum character length of webpage content to include for summarization"
+    )
 
     # Research Configuration
     max_researcher_iterations: int = Field(
