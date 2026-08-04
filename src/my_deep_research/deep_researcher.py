@@ -1,9 +1,17 @@
 """Main LangGraph implementation for the Deep Research agent."""
 
+import asyncio
 from typing import Literal
 
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, get_buffer_string
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+    filter_messages,
+    get_buffer_string,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
@@ -11,15 +19,25 @@ from langgraph.types import Command
 from my_deep_research.configuration import Configuration
 from my_deep_research.prompts import (
     clarify_with_user_instructions,
+    compress_research_simple_human_message,
+    compress_research_system_prompt,
+    research_system_prompt,
     transform_messages_into_research_topic_prompt,
 )
 from my_deep_research.state import (
     AgentInputState,
     AgentState,
     ClarifyWithUser,
+    ResearcherOutputState,
+    ResearcherState,
     ResearchQuestion,
 )
-from my_deep_research.utils import get_api_key_for_model, get_today_str
+from my_deep_research.utils import (
+    execute_tool_safely,
+    get_all_tools,
+    get_api_key_for_model,
+    get_today_str,
+)
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
@@ -122,7 +140,215 @@ async def write_research_brief(
     )
 
 
-# ── Build the Graph ──
+# ── Researcher Subgraph ──
+
+
+async def researcher(
+    state: ResearcherState, config: RunnableConfig
+) -> Command[Literal["researcher_tools"]]:
+    """Individual researcher that conducts focused research on specific topics.
+
+    Uses available tools (search, think_tool) to gather comprehensive information
+    in a tool-calling loop.
+
+    Args:
+        state: Current researcher state with messages and topic context
+        config: Runtime configuration with model settings and tool availability
+
+    Returns:
+        Command to proceed to researcher_tools for tool execution
+    """
+    # Step 1: Load configuration and get available tools
+    configurable = Configuration.from_runnable_config(config)
+    researcher_messages = state.get("researcher_messages", [])
+
+    tools = await get_all_tools(config)
+    if len(tools) == 0:
+        raise ValueError(
+            "No tools found to conduct research: Please configure either your "
+            "search API or add MCP tools to your configuration."
+        )
+
+    # Step 2: Configure the researcher model with tools
+    research_model_config = {
+        "model": configurable.research_model,
+        "max_tokens": configurable.research_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.research_model, config),
+        "tags": ["langsmith:nostream"],
+    }
+
+    researcher_prompt = research_system_prompt.format(date=get_today_str())
+
+    research_model = (
+        configurable_model.bind_tools(tools)
+        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+        .with_config(research_model_config)
+    )
+
+    # Step 3: Generate researcher response with system context
+    messages = [SystemMessage(content=researcher_prompt)] + researcher_messages
+    response = await research_model.ainvoke(messages)
+
+    # Step 4: Update state and proceed to tool execution
+    return Command(
+        goto="researcher_tools",
+        update={
+            "researcher_messages": [response],
+            "tool_call_iterations": state.get("tool_call_iterations", 0) + 1,
+        },
+    )
+
+
+async def researcher_tools(
+    state: ResearcherState, config: RunnableConfig
+) -> Command[Literal["researcher", "compress_research"]]:
+    """Execute tools called by the researcher.
+
+    Handles tool calls, checks iteration limits, and decides whether to
+    continue the research loop or proceed to compression.
+
+    Args:
+        state: Current researcher state with messages and iteration count
+        config: Runtime configuration with research limits
+
+    Returns:
+        Command to either continue research loop or proceed to compression
+    """
+    # Step 1: Extract current state and check early exit
+    configurable = Configuration.from_runnable_config(config)
+    researcher_messages = state.get("researcher_messages", [])
+    most_recent_message = researcher_messages[-1]
+
+    if not most_recent_message.tool_calls:
+        return Command(goto="compress_research")
+
+    # Step 2: Execute all tool calls in parallel
+    tools = await get_all_tools(config)
+    tools_by_name = {
+        tool.name if hasattr(tool, "name") else tool.get("name", "unknown"): tool
+        for tool in tools
+    }
+
+    tool_calls = most_recent_message.tool_calls
+    tool_execution_tasks = [
+        execute_tool_safely(tools_by_name[tc["name"]], tc["args"], config)
+        for tc in tool_calls
+    ]
+    observations = await asyncio.gather(*tool_execution_tasks)
+
+    # Create tool messages from execution results
+    tool_outputs = [
+        ToolMessage(
+            content=observation,
+            name=tc["name"],
+            tool_call_id=tc["id"],
+        )
+        for observation, tc in zip(observations, tool_calls)
+    ]
+
+    # Step 3: Check exit conditions
+    exceeded_iterations = (
+        state.get("tool_call_iterations", 0) >= configurable.max_react_tool_calls
+    )
+
+    if exceeded_iterations:
+        return Command(
+            goto="compress_research",
+            update={"researcher_messages": tool_outputs},
+        )
+
+    # Continue research loop
+    return Command(
+        goto="researcher",
+        update={"researcher_messages": tool_outputs},
+    )
+
+
+async def compress_research(state: ResearcherState, config: RunnableConfig):
+    """Compress and synthesize research findings into a concise summary.
+
+    Takes all research findings and distills them into a clean, comprehensive
+    summary while preserving all important information.
+
+    Args:
+        state: Current researcher state with accumulated research messages
+        config: Runtime configuration with compression model settings
+
+    Returns:
+        Dictionary containing compressed research summary and raw notes
+    """
+    # Step 1: Configure the compression model
+    configurable = Configuration.from_runnable_config(config)
+    synthesizer_model = configurable_model.with_config(
+        {
+            "model": configurable.compression_model,
+            "max_tokens": configurable.compression_model_max_tokens,
+            "api_key": get_api_key_for_model(configurable.compression_model, config),
+            "tags": ["langsmith:nostream"],
+        }
+    )
+
+    # Step 2: Prepare messages for compression
+    researcher_messages = state.get("researcher_messages", [])
+    researcher_messages.append(
+        HumanMessage(content=compress_research_simple_human_message)
+    )
+
+    # Step 3: Attempt compression
+    try:
+        compression_prompt = compress_research_system_prompt.format(
+            date=get_today_str()
+        )
+        messages = [SystemMessage(content=compression_prompt)] + researcher_messages
+        response = await synthesizer_model.ainvoke(messages)
+
+        raw_notes_content = "\n".join(
+            [
+                str(message.content)
+                for message in filter_messages(
+                    researcher_messages, include_types=["tool", "ai"]
+                )
+            ]
+        )
+
+        return {
+            "compressed_research": str(response.content),
+            "raw_notes": [raw_notes_content],
+        }
+
+    except Exception as e:
+        raw_notes_content = "\n".join(
+            [
+                str(message.content)
+                for message in filter_messages(
+                    researcher_messages, include_types=["tool", "ai"]
+                )
+            ]
+        )
+        return {
+            "compressed_research": f"Error synthesizing research: {e}",
+            "raw_notes": [raw_notes_content],
+        }
+
+
+# Build researcher subgraph
+researcher_builder = StateGraph(
+    ResearcherState,
+    output=ResearcherOutputState,
+    config_schema=Configuration,
+)
+
+researcher_builder.add_node("researcher", researcher)
+researcher_builder.add_node("researcher_tools", researcher_tools)
+researcher_builder.add_node("compress_research", compress_research)
+
+researcher_builder.add_edge(START, "researcher")
+researcher_builder.add_edge("compress_research", END)
+
+researcher_subgraph = researcher_builder.compile()
+
+
+# ── Build the Main Graph ──
 
 deep_researcher_builder = StateGraph(
     AgentState,
