@@ -25,6 +25,15 @@ class ClarifyWithUser(BaseModel):
         description="Verify message that we will start research after the user has provided the necessary information."
     )
 
+class FollowUpDecision(BaseModel):
+    
+    needs_research: bool = Field(
+        description="Whether the user's question requires further research"
+    )
+    answer: str = Field(
+        description="The answer to the user's question"
+    )
+
 
 class ResearchQuestion(BaseModel):
     """Research question and brief for guiding research."""
@@ -95,6 +104,13 @@ class SupervisorState(TypedDict):
     notes: Annotated[list[str], override_reducer]
     research_iterations: int
     raw_notes: Annotated[list[str], override_reducer]
+
+
+class SupervisorOutputState(TypedDict):
+    """Output state from the supervisor subgraph — what gets passed back to the main graph."""
+    
+    notes: Annotated[list[str], override_reducer]
+    research_brief: str
 
 
 class ResearcherState(TypedDict):

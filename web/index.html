@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Researcher</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            padding: 40px 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 8px;
+            color: #ffffff;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 40px;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 14px 18px;
+            border: 1px solid #333;
+            border-radius: 10px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-area input:focus {
+            border-color: #555;
+        }
+
+        .input-area input::placeholder {
+            color: #666;
+        }
+
+        .input-area button {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 10px;
+            background: #2563eb;
+            color: white;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        .input-area button:hover {
+            background: #1d4ed8;
+        }
+
+        .input-area button:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .progress-area {
+            margin-bottom: 24px;
+        }
+
+        .progress-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            font-size: 14px;
+            color: #aaa;
+            border-bottom: 1px solid #1a1a1a;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .progress-item .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #2563eb;
+            flex-shrink: 0;
+        }
+
+        .progress-item .dot.done {
+            background: #22c55e;
+        }
+
+        .progress-item.active .dot {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .report-area {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 12px;
+            padding: 32px;
+            line-height: 1.75;
+            font-size: 15px;
+            display: none;
+        }
+
+        .report-area h1, .report-area h2, .report-area h3 {
+            color: #fff;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+
+        .report-area h1 { font-size: 22px; }
+        .report-area h2 { font-size: 18px; }
+        .report-area h3 { font-size: 16px; }
+
+        .report-area p {
+            margin-bottom: 12px;
+            color: #ccc;
+        }
+
+        .report-area ul, .report-area ol {
+            margin: 12px 0;
+            padding-left: 24px;
+        }
+
+        .report-area li {
+            margin-bottom: 6px;
+            color: #ccc;
+        }
+
+        .report-area table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+
+        .report-area th, .report-area td {
+            border: 1px solid #333;
+            padding: 8px 12px;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        .report-area th {
+            background: #1a1a1a;
+            color: #ddd;
+        }
+
+        .report-area td {
+            color: #bbb;
+        }
+
+        .report-area code {
+            background: #1a1a1a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #e0e0e0;
+        }
+
+        .report-area pre {
+            background: #1a1a1a;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+
+        .report-area pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .report-area blockquote {
+            border-left: 3px solid #2563eb;
+            padding-left: 16px;
+            margin: 12px 0;
+            color: #999;
+        }
+
+        .report-area hr {
+            border: none;
+            border-top: 1px solid #222;
+            margin: 24px 0;
+        }
+
+        .report-area a {
+            color: #60a5fa;
+            text-decoration: none;
+        }
+
+        .report-area a:hover {
+            text-decoration: underline;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #444;
+            padding: 60px 0;
+            font-size: 15px;
+        }
+
+        .followup-area {
+            margin-top: 24px;
+            display: none;
+        }
+
+        .followup-input {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .followup-input input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .followup-input input:focus {
+            border-color: #555;
+        }
+
+        .followup-input input::placeholder {
+            color: #666;
+        }
+
+        .followup-input button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #374151;
+            color: #e0e0e0;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        .followup-input button:hover {
+            background: #4b5563;
+        }
+
+        .followup-input button:disabled {
+            background: #1f1f1f;
+            color: #555;
+            cursor: not-allowed;
+        }
+
+        .followup-item {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 10px;
+            padding: 20px 24px;
+            margin-bottom: 16px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .followup-item .question {
+            color: #60a5fa;
+            font-weight: 500;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+
+        .followup-item .answer {
+            color: #ccc;
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        .followup-item .answer h1, .followup-item .answer h2, .followup-item .answer h3 {
+            color: #fff;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+
+        .followup-item .answer p { margin-bottom: 10px; }
+        .followup-item .answer ul, .followup-item .answer ol { margin: 8px 0; padding-left: 20px; }
+        .followup-item .answer li { margin-bottom: 4px; }
+        .followup-item .answer a { color: #60a5fa; text-decoration: none; }
+        .followup-item .answer a:hover { text-decoration: underline; }
+
+        .followup-count {
+            text-align: right;
+            color: #555;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Deep Researcher</h1>
+        <p class="subtitle">AI-powered deep research assistant</p>
+
+        <div class="input-area">
+            <input type="text" id="queryInput" placeholder="输入你的研究问题..."
+                   onkeydown="if(event.key==='Enter') startResearch()">
+            <button id="startBtn" onclick="startResearch()">开始研究</button>
+        </div>
+
+        <div class="progress-area" id="progressArea"></div>
+
+        <div class="report-area" id="reportArea"></div>
+
+        <div class="followup-area" id="followupArea">
+            <div class="followup-count" id="followupCount"></div>
+            <div class="followup-input">
+                <input type="text" id="followupInput" placeholder="基于报告继续追问..."
+                       onkeydown="if(event.key==='Enter') askFollowup()">
+                <button id="followupBtn" onclick="askFollowup()">追问</button>
+            </div>
+            <div id="followupList"></div>
+        </div>
+
+        <div class="empty-state" id="emptyState">
+            输入一个问题，AI 将为你进行深度研究并生成报告
+        </div>
+    </div>
+
+    <!-- Markdown renderer -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <script>
+        marked.setOptions({ breaks: true });
+        const queryInput = document.getElementById('queryInput');
+        const startBtn = document.getElementById('startBtn');
+        const progressArea = document.getElementById('progressArea');
+        const reportArea = document.getElementById('reportArea');
+        const emptyState = document.getElementById('emptyState');
+        const followupArea = document.getElementById('followupArea');
+        const followupInput = document.getElementById('followupInput');
+        const followupBtn = document.getElementById('followupBtn');
+        const followupList = document.getElementById('followupList');
+        const followupCount = document.getElementById('followupCount');
+
+        let currentSessionId = null;
+        let followupRemaining = 5;
+        const MAX_FOLLOWUPS = 5;
+        let lastProgressMessage = '';
+
+        function addProgress(message, isDone = false) {
+            const item = document.createElement('div');
+            item.className = 'progress-item' + (isDone ? '' : ' active');
+            item.innerHTML = `<span class="dot ${isDone ? 'done' : ''}"></span><span>${message}</span>`;
+
+            // Remove active state from previous items
+            const prevActive = progressArea.querySelectorAll('.active');
+            prevActive.forEach(el => {
+                el.classList.remove('active');
+                el.querySelector('.dot').classList.add('done');
+            });
+
+            progressArea.appendChild(item);
+        }
+
+        function showReport(markdown) {
+            reportArea.innerHTML = marked.parse(markdown);
+            reportArea.style.display = 'block';
+        }
+
+        async function startResearch() {
+            const query = queryInput.value.trim();
+            if (!query) return;
+
+            // Reset UI
+            startBtn.disabled = true;
+            startBtn.textContent = '研究中...';
+            progressArea.innerHTML = '';
+            reportArea.style.display = 'none';
+            reportArea.innerHTML = '';
+            emptyState.style.display = 'none';
+            followupArea.style.display = 'none';
+            followupList.innerHTML = '';
+            currentSessionId = crypto.randomUUID();
+            followupRemaining = MAX_FOLLOWUPS;
+            lastProgressMessage = '';
+
+            addProgress('已提交研究请求...');
+
+            try {
+                const response = await fetch('/research', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, session_id: currentSessionId })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Parse SSE messages from buffer
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop(); // Keep incomplete message in buffer
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed.startsWith('data: ')) continue;
+                        const jsonStr = trimmed.slice(6); // Remove "data: " prefix
+
+                        try {
+                            const event = JSON.parse(jsonStr);
+
+                            if (event.type === 'progress') {
+                                if (event.message !== lastProgressMessage) {
+                                    lastProgressMessage = event.message;
+                                    addProgress(event.message);
+                                }
+                            } else if (event.type === 'report') {
+                                addProgress('报告生成完成', true);
+                                showReport(event.content);
+                                followupArea.style.display = 'block';
+                                followupCount.textContent = `剩余追问次数: ${followupRemaining}/${MAX_FOLLOWUPS}`;
+                            } else if (event.type === 'done') {
+                                addProgress(event.message, true);
+                            } else if (event.type === 'error') {
+                                addProgress('错误: ' + event.message, true);
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse SSE event:', e);
+                        }
+                    }
+                }
+            } catch (error) {
+                addProgress('连接失败: ' + error.message, true);
+            } finally {
+                startBtn.disabled = false;
+                startBtn.textContent = '开始研究';
+            }
+        }
+        async function askFollowup() {
+            const question = followupInput.value.trim();
+            if (!question || !currentSessionId) return;
+            if (followupRemaining <= 0) {
+                alert('追问次数已用完');
+                return;
+            }
+
+            followupBtn.disabled = true;
+            followupBtn.textContent = '思考中...';
+            followupInput.disabled = true;
+
+            try {
+                const response = await fetch('/followup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: question, session_id: currentSessionId })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('错误: ' + data.error);
+                    return;
+                }
+
+                const item = document.createElement('div');
+                item.className = 'followup-item';
+                item.innerHTML = `
+                    <div class="question">Q: ${question}</div>
+                    <div class="answer">${marked.parse(data.answer)}</div>
+                `;
+                followupList.appendChild(item);
+
+                followupRemaining--;
+                followupCount.textContent = `剩余追问次数: ${followupRemaining}/${MAX_FOLLOWUPS}`;
+                followupInput.value = '';
+
+                if (followupRemaining <= 0) {
+                    followupInput.placeholder = '追问次数已用完';
+                    followupInput.disabled = true;
+                    followupBtn.disabled = true;
+                    followupBtn.textContent = '已用完';
+                    return;
+                }
+            } catch (error) {
+                alert('追问失败: ' + error.message);
+            } finally {
+                if (followupRemaining > 0) {
+                    followupBtn.disabled = false;
+                    followupBtn.textContent = '追问';
+                    followupInput.disabled = false;
+                    followupInput.focus();
+                }
+            }
+        }
+    </script>
+</body>
+</html>

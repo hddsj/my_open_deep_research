@@ -22,6 +22,7 @@ from my_deep_research.prompts import (
     compress_research_simple_human_message,
     compress_research_system_prompt,
     final_report_generation_prompt,
+    followup_prompt,
     lead_researcher_prompt,
     research_system_prompt,
     transform_messages_into_research_topic_prompt,
@@ -35,13 +36,17 @@ from my_deep_research.state import (
     ResearcherOutputState,
     ResearcherState,
     ResearchQuestion,
+    FollowUpDecision,
+    SupervisorOutputState,
     SupervisorState,
 )
 from my_deep_research.utils import (
     execute_tool_safely,
     get_all_tools,
     get_api_key_for_model,
+    get_model_token_limit,
     get_today_str,
+    is_token_limit_exceeded,
     think_tool,
 )
 
@@ -142,7 +147,10 @@ async def write_research_brief(
     # Step 3: Store research brief and end (Phase 5 will route to supervisor)
     return Command(
         goto="research_supervisor",
-        update={"research_brief": response.research_brief},
+        update={
+            "research_brief": response.research_brief,
+            "supervisor_messages": [HumanMessage(content=response.research_brief)],
+        },
     )
 
 
@@ -337,47 +345,99 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
         }
 
 
-async def final_report_generation(
-    state: AgentState, config: RunnableConfig
-) -> Command[Literal["__end__"]]:
-    """Generate a final report based on all research findings.
+async def final_report_generation(state: AgentState, config: RunnableConfig):
+    """Generate the final comprehensive research report with retry logic for token limits.
 
     Args:
-        state: Current agent state containing user messages
-        config: Runtime configuration with model settings
+        state: Agent state containing research findings and context
+        config: Runtime configuration with model settings and API keys
 
     Returns:
-        Command to end (will be changed to research_supervisor in Phase 5)
+        Dictionary containing the final report and cleared state
     """
-    # Step 1: Set up the research model for structured output
+    # Step 1: Extract research findings and prepare state cleanup
+    notes = state.get("notes", [])
+    findings = "\n\n".join(notes)
+
+    # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
-    research_model_config = {
+    writer_model_config = {
         "model": configurable.final_report_model,
         "max_tokens": configurable.final_report_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.final_report_model, config),
         "tags": ["langsmith:nostream"],
     }
 
-    research_model = (
-        configurable_model
-        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(research_model_config)
-    )
+    # Step 3: Attempt report generation with token limit retry logic
+    max_retries = 3
+    current_retry = 0
+    findings_token_limit = None
 
-    # Step 2: Generate structured research brief from user messages
-    prompt_content = final_report_generation_prompt.format(
-        research_brief=state.get("research_brief", ""),
-        messages=get_buffer_string(state.get("messages", [])),
-        date=get_today_str(),
-        findings="\n\n".join(state.get("notes", [])),
-    )
-    response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
+    while current_retry <= max_retries:
+        try:
+            prompt_content = final_report_generation_prompt.format(
+                research_brief=state.get("research_brief", ""),
+                messages=get_buffer_string(state.get("messages", [])),
+                findings=findings,
+                date=get_today_str(),
+            )
+            response = await configurable_model.with_config(writer_model_config).ainvoke(
+                [HumanMessage(content=prompt_content)]
+            )
+            return {
+                "final_report": response.content,
+                "messages": [response],
+            }
 
+        except Exception as e:
+            if is_token_limit_exceeded(e, configurable.final_report_model):
+                current_retry += 1
+                if current_retry == 1:
+                    model_token_limit = get_model_token_limit(configurable.final_report_model)
+                    if not model_token_limit:
+                        return {
+                            "final_report": f"Error: Token limit exceeded but could not determine model limit. {e}",
+                            "messages": [AIMessage(content="Report generation failed due to token limits")],
+                        }
+                    findings_token_limit = model_token_limit * 4
+                else:
+                    findings_token_limit = int(findings_token_limit * 0.9)
+                findings = findings[:findings_token_limit]
+                continue
+            else:
+                return {
+                    "final_report": f"Error generating final report: {e}",
+                    "messages": [AIMessage(content="Report generation failed due to an error")],
+                }
 
-    return Command(
-        goto=END,
-        update={"final_report": response.content},
-    )
+    # Step 4: Return failure result if all retries exhausted
+    return {
+        "final_report": "Error generating final report: Maximum retries exceeded",
+        "messages": [AIMessage(content="Report generation failed after maximum retries")],
+    }
+async def handle_followup(followup_question: str, notes: list, final_report: str, config: RunnableConfig) -> str:
+    configurable = Configuration.from_runnable_config(config)
+    api_key = get_api_key_for_model(configurable.research_model, config)
+    model_config = {
+        "model": configurable.research_model,
+        "max_tokens": configurable.research_model_max_tokens,
+    }
+    if api_key:
+        model_config["api_key"] = api_key
+    model = configurable_model.with_config(configurable=model_config)
+    prompt = followup_prompt.format(
+    final_report=final_report,
+    notes="\n".join(notes),
+    followup_question=followup_question)
+
+    result = await model.with_structured_output(FollowUpDecision).ainvoke([
+        HumanMessage(content=prompt),
+    ])
+
+    if result.needs_research:
+        return result.answer
+    else:
+        return result.answer
 
 # Build researcher subgraph
 researcher_builder = StateGraph(
@@ -445,7 +505,7 @@ async def supervisor_tools(
     research_iterations = state.get("research_iterations", 0)
     most_recent_message = supervisor_messages[-1]
 
-    exceeded = research_iterations > configurable.max_researcher_iterations
+    exceeded = research_iterations > configurable.max_supervisor_iterations
     no_tool_calls = not most_recent_message.tool_calls
     research_complete = any(
         tc["name"] == "ResearchComplete"
@@ -489,13 +549,16 @@ async def supervisor_tools(
             for tc in allowed
         ]
         results = await asyncio.gather(*research_tasks)
+        new_notes = []
         for observation, tc in zip(results, allowed):
+            content = observation.get("compressed_research",
+                "Error synthesizing research report")
             all_tool_messages.append(ToolMessage(
-                content=observation.get("compressed_research",
-                    "Error synthesizing research report"),
+                content=content,
                 name=tc["name"],
                 tool_call_id=tc["id"],
             ))
+            new_notes.append(content)
 
         for tc in overflow:
             all_tool_messages.append(ToolMessage(
@@ -506,7 +569,10 @@ async def supervisor_tools(
             ))
     return Command(
         goto="supervisor",
-        update={"supervisor_messages": all_tool_messages},
+        update={
+            "supervisor_messages": all_tool_messages,
+            "notes": new_notes if conduct_research_calls else [],
+        },
     )
 
 
@@ -514,6 +580,7 @@ async def supervisor_tools(
 # Build supervisor subgraph
 supervisor_builder = StateGraph(
     SupervisorState,
+    output=SupervisorOutputState,
     config_schema=Configuration,
 )
 

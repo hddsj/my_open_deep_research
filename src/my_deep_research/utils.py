@@ -306,3 +306,26 @@ async def execute_tool_safely(tool, args, config):
         return await tool.ainvoke(args, config)
     except Exception as e:
         return f"Error executing tool: {str(e)}"
+
+
+MODEL_TOKEN_LIMITS = {
+    "deepseek-chat": 64000,
+}
+
+
+def get_model_token_limit(model: str) -> int | None:
+    """Get the maximum token limit for a given model."""
+    return MODEL_TOKEN_LIMITS.get(model)
+
+
+def is_token_limit_exceeded(e: Exception, model: str) -> bool:
+    """Check if an exception is caused by exceeding the model's token limit."""
+    error_str = str(e).lower()
+    keywords = [
+        "context length",
+        "token limit",
+        "too many tokens",
+        "context_length_exceeded",
+        "maximum context",
+    ]
+    return any(keyword in error_str for keyword in keywords)

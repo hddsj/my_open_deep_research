@@ -245,7 +245,7 @@ You have access to three main tools:
 2. **ResearchComplete**: Indicate that research is complete
 3. **think_tool**: For reflection and strategic planning during research
 
-**CRITICAL: Use think_tool before calling ConductResearch to plan your approach, and after each ConductResearch to assess progress. Do not call think_tool with any other tools in parallel.**
+**CRITICAL: You MUST call ConductResearch at least once before calling ResearchComplete. Your primary job is to delegate research, not to answer questions yourself. Use think_tool alongside ConductResearch calls to plan and reflect, but ALWAYS include at least one ConductResearch call in your first response.**
 </Available Tools>
 
 <Instructions>
@@ -376,4 +376,36 @@ Format the report in clear markdown with proper structure and include source ref
   [2] Source Title: URL
 - Citations are extremely important. Make sure to include these, and pay a lot of attention to getting these right. Users will often use these citations to look into more information.
 </Citation Rules>
+"""
+
+
+##########################
+# Follow-Up Question Handling
+##########################
+
+followup_prompt = """You are a research assistant. The user has asked a follow-up question based on a previously generated research report.
+
+<Previous Report>
+{final_report}
+</Previous Report>
+
+<Research Notes>
+{notes}
+</Research Notes>
+
+<User Follow-Up Question>
+{followup_question}
+</User Follow-Up Question>
+
+Your task:
+1. Determine whether the existing research notes contain enough information to answer the follow-up question thoroughly.
+2. If the notes are sufficient, set needs_research to false and provide a detailed, well-structured answer in the answer field. Reference specific information from the research notes.
+3. If the notes are NOT sufficient (the question asks about something not covered, or requires more up-to-date or deeper information), set needs_research to true and write a clear, specific research topic in the answer field that describes what additional research is needed.
+
+Guidelines for your answer:
+- Be detailed and well-organized with proper markdown formatting
+- Reference specific facts from the research notes when available
+- Write in the SAME language as the user's follow-up question
+- Do not repeat the entire original report; focus on answering the specific follow-up question
+- If providing a direct answer, make it comprehensive but focused on the question asked
 """
