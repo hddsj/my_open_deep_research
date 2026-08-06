@@ -33,6 +33,10 @@ class FollowUpDecision(BaseModel):
     answer: str = Field(
         description="The answer to the user's question"
     )
+    research_topic: Optional[str] = Field(
+        default=None, 
+        description="The research topic if needs_research is True"
+    )
 
 
 class ResearchQuestion(BaseModel):

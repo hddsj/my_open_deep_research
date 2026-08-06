@@ -26,6 +26,7 @@ from my_deep_research.prompts import (
     lead_researcher_prompt,
     research_system_prompt,
     transform_messages_into_research_topic_prompt,
+    followup_answer_prompt,
 )
 from my_deep_research.state import (
     AgentInputState,
@@ -415,29 +416,6 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         "final_report": "Error generating final report: Maximum retries exceeded",
         "messages": [AIMessage(content="Report generation failed after maximum retries")],
     }
-async def handle_followup(followup_question: str, notes: list, final_report: str, config: RunnableConfig) -> str:
-    configurable = Configuration.from_runnable_config(config)
-    api_key = get_api_key_for_model(configurable.research_model, config)
-    model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-    }
-    if api_key:
-        model_config["api_key"] = api_key
-    model = configurable_model.with_config(configurable=model_config)
-    prompt = followup_prompt.format(
-    final_report=final_report,
-    notes="\n".join(notes),
-    followup_question=followup_question)
-
-    result = await model.with_structured_output(FollowUpDecision).ainvoke([
-        HumanMessage(content=prompt),
-    ])
-
-    if result.needs_research:
-        return result.answer
-    else:
-        return result.answer
 
 # Build researcher subgraph
 researcher_builder = StateGraph(
@@ -454,6 +432,49 @@ researcher_builder.add_edge(START, "researcher")
 researcher_builder.add_edge("compress_research", END)
 
 researcher_subgraph = researcher_builder.compile()
+
+async def handle_followup(followup_question: str, notes: list, final_report: str, config: RunnableConfig) -> str:
+    configurable = Configuration.from_runnable_config(config)
+    api_key = get_api_key_for_model(configurable.research_model, config)
+    model_config = {
+        "model": configurable.research_model,
+        "max_tokens": configurable.research_model_max_tokens,
+    }
+    if api_key:
+        model_config["api_key"] = api_key
+    model = configurable_model.with_config(configurable=model_config)
+    prompt = followup_prompt.format(
+            final_report=final_report,
+            notes="\n".join(notes),
+            followup_question=followup_question)
+
+    result = await model.with_structured_output(FollowUpDecision).ainvoke([
+        HumanMessage(content=prompt),
+    ])
+
+    print(f"[追问判断] needs_research={result.needs_research}, research_topic={result.research_topic}")
+    if result.needs_research:
+        decision = await researcher_subgraph.ainvoke({
+                "researcher_messages": [
+                    HumanMessage(content=result.research_topic)
+                ],
+                "research_topic": result.research_topic,
+            }, config)
+        new_content = decision["compressed_research"]
+        notes = "\n".join(notes)
+        notes += "\n" + new_content
+        prompt = followup_answer_prompt.format(
+                    final_report=final_report,
+                    notes=notes,
+                    followup_question=followup_question,
+                    new_research=new_content)
+        answer_response = await model.ainvoke([
+                HumanMessage(content=prompt),
+            ])
+        return {"answer": answer_response.content,"searched": True}
+    else:
+        return {"answer": result.answer,"searched": False}
+
 
 async def supervisor(
     state: SupervisorState, config: RunnableConfig

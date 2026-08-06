@@ -508,8 +508,11 @@
 
                 const item = document.createElement('div');
                 item.className = 'followup-item';
+                const searchBadge = data.searched
+                    ? '<span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:4px;font-size:0.85em;margin-left:8px;">已补充搜索</span>'
+                    : '';
                 item.innerHTML = `
-                    <div class="question">Q: ${question}</div>
+                    <div class="question">Q: ${question}${searchBadge}</div>
                     <div class="answer">${marked.parse(data.answer)}</div>
                 `;
                 followupList.appendChild(item);
