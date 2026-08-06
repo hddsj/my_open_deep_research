@@ -4,7 +4,7 @@ import uuid
 from fastapi import FastAPI,Request
 from fastapi.responses import StreamingResponse,HTMLResponse
 from dotenv import load_dotenv
-from my_deep_research.deep_researcher import deep_researcher, handle_followup
+from my_deep_research.deep_researcher import deep_researcher, handle_followup, suggest_followups
 load_dotenv()
 from pathlib import Path
 from datetime import datetime
@@ -55,6 +55,8 @@ async def event_generator(query: str, session_id: str, config: dict):
             for q in queries:
                 yield f"data: {json.dumps({'type': 'progress', 'message': f'正在搜索: {q}'})}\n\n"
     yield f"data: {json.dumps({'type': 'report', 'content': final_report})}\n\n"
+    suggestions = await suggest_followups(final_report, config)
+    yield f"data: {json.dumps({'type': 'suggestions', 'questions': suggestions})}\n\n"
     research_sessions[session_id] = {
         "query": query,
         "created_at": datetime.now().isoformat(),

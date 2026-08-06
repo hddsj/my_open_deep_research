@@ -437,3 +437,18 @@ Guidelines:
 - Write in the SAME language as the user's follow-up question
 - Do not repeat the entire original report; focus on answering the specific follow-up question
 """
+
+suggest_followup_prompt = """You are a research analyst. Based on the following research report, suggest exactly 3 follow-up questions that would help the reader gain deeper understanding.
+
+<Report>
+{final_report}
+</Report>
+
+Requirements:
+1. Each question should target an angle that the report mentions but does NOT explore in depth.
+2. Questions should be specific and actionable, not vague or overly broad.
+3. Questions should cover DIFFERENT aspects of the topic — do not repeat similar angles.
+4. Write the questions in the SAME language as the report.
+
+Output format: Return ONLY the 3 questions, one per line, numbered 1-3. No other text.
+"""
