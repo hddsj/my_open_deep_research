@@ -131,6 +131,50 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        .export-bar {
+            display: none;
+            gap: 10px;
+            margin: 12px 0;
+        }
+
+        .export-bar button {
+            padding: 8px 18px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #1a1a1a;
+            color: #ccc;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .export-bar button:hover:not(:disabled) {
+            background: #2a2a2a;
+            border-color: #555;
+            color: #fff;
+        }
+
+        .export-bar button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        @media print {
+            body * { visibility: hidden; }
+            #reportArea, #reportArea * { visibility: visible; }
+            #reportArea {
+                position: absolute;
+                left: 0; top: 0; width: 100%;
+                background: #fff !important;
+                color: #111 !important;
+                padding: 20px !important;
+                border: none !important;
+            }
+            #reportArea * { color: #111 !important; background: #fff !important; }
+            #reportArea h1, #reportArea h2, #reportArea h3, #reportArea h4 { color: #000 !important; }
+            #reportArea a { color: #2563eb !important; }
+        }
+
         .report-area {
             background: #111;
             border: 1px solid #222;
@@ -349,6 +393,11 @@
 
         <div class="report-area" id="reportArea"></div>
 
+        <div class="export-bar" id="exportBar">
+            <button id="exportMdBtn" disabled onclick="exportMarkdown()">导出 Markdown</button>
+            <button id="exportPdfBtn" disabled onclick="exportPdf()">导出 PDF</button>
+        </div>
+
         <div class="followup-area" id="followupArea">
             <div class="followup-count" id="followupCount"></div>
             <div class="followup-input">
@@ -384,6 +433,10 @@
         let followupRemaining = 5;
         const MAX_FOLLOWUPS = 5;
         let lastProgressMessage = '';
+        let rawMarkdown = '';
+        const exportBar = document.getElementById('exportBar');
+        const exportMdBtn = document.getElementById('exportMdBtn');
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
 
         function addProgress(message, isDone = false) {
             const item = document.createElement('div');
@@ -401,8 +454,26 @@
         }
 
         function showReport(markdown) {
+            rawMarkdown = markdown;
             reportArea.innerHTML = marked.parse(markdown);
             reportArea.style.display = 'block';
+            exportBar.style.display = 'flex';
+            exportMdBtn.disabled = false;
+            exportPdfBtn.disabled = false;
+        }
+
+        function exportMarkdown() {
+            const blob = new Blob([rawMarkdown], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'research-report.md';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function exportPdf() {
+            window.print();
         }
 
         async function startResearch() {
@@ -415,6 +486,10 @@
             progressArea.innerHTML = '';
             reportArea.style.display = 'none';
             reportArea.innerHTML = '';
+            exportBar.style.display = 'none';
+            exportMdBtn.disabled = true;
+            exportPdfBtn.disabled = true;
+            rawMarkdown = '';
             emptyState.style.display = 'none';
             followupArea.style.display = 'none';
             followupList.innerHTML = '';
