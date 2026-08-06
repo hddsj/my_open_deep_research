@@ -409,3 +409,31 @@ Guidelines for your answer:
 - Do not repeat the entire original report; focus on answering the specific follow-up question
 - If providing a direct answer, make it comprehensive but focused on the question asked
 """
+
+followup_answer_prompt = """You are a research assistant. The user asked a follow-up question based on a research report. Additional research has been conducted to help answer this question.
+
+<Previous Report>
+{final_report}
+</Previous Report>
+
+<Original Research Notes>
+{notes}
+</Original Research Notes>
+
+<Supplementary Research>
+{new_research}
+</Supplementary Research>
+
+<User Follow-Up Question>
+{followup_question}
+</User Follow-Up Question>
+
+Your task: Answer the user's follow-up question using ALL available information — the original report, the original research notes, and the newly gathered supplementary research.
+
+Guidelines:
+- Provide a detailed, well-structured answer with proper markdown formatting
+- Prioritize information from the supplementary research, as it was gathered specifically for this question
+- Reference and integrate relevant facts from the original notes and report where helpful
+- Write in the SAME language as the user's follow-up question
+- Do not repeat the entire original report; focus on answering the specific follow-up question
+"""

@@ -55,7 +55,7 @@ async def followup(request: Request):
     session = research_sessions[session_id]
     config = {"configurable": {"allow_clarification": False}}
     answer = await handle_followup(question, session["notes"], session["final_report"], config)
-    return {"answer": answer}
+    return {"answer": answer["answer"], "searched": answer["searched"]}
 
 @app.get("/")
 async def index():
