@@ -21,9 +21,8 @@ node_messages = {
     "final_report_generation": "正在生成最终报告...",
 }
 
-async def event_generator(query: str, session_id: str):
+async def event_generator(query: str, session_id: str, config: dict):
     inputs = {"messages": [{"role": "user", "content": query}]}
-    config = {"configurable": {"allow_clarification": False}}
     
     final_report = ""
     notes = []
@@ -35,6 +34,10 @@ async def event_generator(query: str, session_id: str):
             final_report = event["data"]["output"]["final_report"]
         if event["event"] == "on_chain_end" and event["name"] == "research_supervisor":
             notes = event["data"]["output"].get("notes", [])
+        if event["event"] == "on_tool_start" and event["name"] == "tavily_search":
+            queries = event["data"].get("input", {}).get("queries", [])
+            for q in queries:
+                yield f"data: {json.dumps({'type': 'progress', 'message': f'正在搜索: {q}'})}\n\n"
     yield f"data: {json.dumps({'type': 'report', 'content': final_report})}\n\n"
     research_sessions[session_id] = {"notes": notes, "final_report": final_report}
 
@@ -43,7 +46,14 @@ async def research(request: Request):
     data = await request.json()
     query = data.get("query", "")
     session_id = data.get("session_id", str(uuid.uuid4()))
-    return StreamingResponse(event_generator(query, session_id), media_type="text/event-stream")
+    config = {"configurable": {
+        "allow_clarification": False,
+        "research_model": data.get("research_model", "deepseek-chat"),
+        "max_search_results": data.get("max_search_results", 5),
+        "max_researcher_iterations": data.get("max_researcher_iterations", 5),
+        "max_concurrent_research_units": data.get("max_concurrent_research_units", 5),
+    }}
+    return StreamingResponse(event_generator(query, session_id, config), media_type="text/event-stream")
 
 @app.post("/followup")
 async def followup(request: Request):

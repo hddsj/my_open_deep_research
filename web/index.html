@@ -383,12 +383,103 @@
             font-size: 12px;
             margin-bottom: 8px;
         }
+
+        .config-toggle {
+            text-align: right;
+            margin-bottom: 12px;
+        }
+
+        .config-toggle button {
+            background: none;
+            border: 1px solid #333;
+            color: #888;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .config-toggle button:hover {
+            border-color: #555;
+            color: #ccc;
+        }
+
+        .config-panel {
+            display: none;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            gap: 16px;
+        }
+
+        .config-panel.open {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .config-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .config-item label {
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        .config-item select,
+        .config-item input[type="number"] {
+            padding: 8px 12px;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #111;
+            color: #e0e0e0;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .config-item select:focus,
+        .config-item input[type="number"]:focus {
+            border-color: #555;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Deep Researcher</h1>
         <p class="subtitle">AI-powered deep research assistant</p>
+
+        <div class="config-toggle">
+            <button onclick="document.getElementById('configPanel').classList.toggle('open')">⚙ 配置</button>
+        </div>
+
+        <div class="config-panel" id="configPanel">
+            <div class="config-item">
+                <label>研究模型</label>
+                <select id="cfgModel">
+                    <option value="deepseek-chat" selected>DeepSeek Chat</option>
+                    <option value="gpt-4o">GPT-4o</option>
+                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                </select>
+            </div>
+            <div class="config-item">
+                <label>搜索结果数量</label>
+                <input type="number" id="cfgSearchResults" value="5" min="1" max="20">
+            </div>
+            <div class="config-item">
+                <label>研究迭代深度</label>
+                <input type="number" id="cfgIterations" value="5" min="1" max="15">
+            </div>
+            <div class="config-item">
+                <label>并发研究数量</label>
+                <input type="number" id="cfgConcurrency" value="5" min="1" max="10">
+            </div>
+        </div>
 
         <div class="input-area">
             <input type="text" id="queryInput" placeholder="输入你的研究问题..."
@@ -510,7 +601,14 @@
                 const response = await fetch('/research', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: query, session_id: currentSessionId })
+                    body: JSON.stringify({
+                        query: query,
+                        session_id: currentSessionId,
+                        research_model: document.getElementById('cfgModel').value,
+                        max_search_results: parseInt(document.getElementById('cfgSearchResults').value),
+                        max_researcher_iterations: parseInt(document.getElementById('cfgIterations').value),
+                        max_concurrent_research_units: parseInt(document.getElementById('cfgConcurrency').value)
+                    })
                 });
 
                 const reader = response.body.getReader();
