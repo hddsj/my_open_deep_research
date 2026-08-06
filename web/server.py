@@ -2,16 +2,32 @@ import asyncio
 import json
 import uuid
 from fastapi import FastAPI,Request
-from pathlib import Path
 from fastapi.responses import StreamingResponse,HTMLResponse
 from dotenv import load_dotenv
 from my_deep_research.deep_researcher import deep_researcher, handle_followup
 load_dotenv()
+from pathlib import Path
+from datetime import datetime
 
 app = FastAPI()
 
+SESSIONS_FILE = Path(__file__).parent / "sessions.json"
+
+def save_sessions():
+    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(research_sessions, f, ensure_ascii=False, indent=2)
+
+def load_sessions():
+    if SESSIONS_FILE.exists():
+        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}    
+
+
 # 存储每次研究的上下文，追问时用
-research_sessions = {}
+research_sessions = load_sessions()
+
+
 
 node_messages = {
     "write_research_brief": "正在生成研究计划...",
@@ -39,7 +55,13 @@ async def event_generator(query: str, session_id: str, config: dict):
             for q in queries:
                 yield f"data: {json.dumps({'type': 'progress', 'message': f'正在搜索: {q}'})}\n\n"
     yield f"data: {json.dumps({'type': 'report', 'content': final_report})}\n\n"
-    research_sessions[session_id] = {"notes": notes, "final_report": final_report}
+    research_sessions[session_id] = {
+        "query": query,
+        "created_at": datetime.now().isoformat(),
+        "notes": notes,
+        "final_report": final_report
+    }
+    save_sessions()
 
 @app.post("/research")
 async def research(request: Request):
@@ -73,3 +95,18 @@ async def followup(request: Request):
 async def index():
     index_path = Path(__file__).parent / "index.html"
     return HTMLResponse(content=index_path.read_text(encoding="utf-8"), status_code=200)
+
+@app.get("/sessions")
+async def list_sessions():
+    return [{"id": k, "query": v.get("query",""), "created_at": v.get("created_at","")} 
+            for k, v in research_sessions.items()]
+
+@app.get("/session/{session_id}")
+async def get_session(session_id: str):
+    if session_id not in research_sessions:
+        return {"error": "Session not found"}
+    s = research_sessions[session_id]
+    return {"query": s["query"], "final_report": s["final_report"]}
+
+
+

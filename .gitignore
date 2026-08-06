@@ -13,6 +13,9 @@ build/
 # LangGraph
 .langgraph_api/
 
+# Session data
+sessions.json
+
 # IDE and tools
 .claude/
 .idea/
