@@ -515,6 +515,41 @@
             text-align: center;
             padding: 20px;
         }
+
+        .suggestions {
+            display: none;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 12px 0;
+        }
+
+        .suggestions.show {
+            display: flex;
+        }
+
+        .suggestions .label {
+            color: #888;
+            font-size: 13px;
+            width: 100%;
+            margin-bottom: 4px;
+        }
+
+        .suggestion-chip {
+            padding: 8px 16px;
+            border: 1px solid #333;
+            border-radius: 20px;
+            background: #1a1a1a;
+            color: #ccc;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .suggestion-chip:hover {
+            background: #2a2a2a;
+            border-color: #555;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -571,6 +606,8 @@
             <button id="exportMdBtn" disabled onclick="exportMarkdown()">导出 Markdown</button>
             <button id="exportPdfBtn" disabled onclick="exportPdf()">导出 PDF</button>
         </div>
+
+        <div class="suggestions" id="suggestionsArea"></div>
 
         <div class="followup-area" id="followupArea">
             <div class="followup-count" id="followupCount"></div>
@@ -637,6 +674,19 @@
                 alert('加载失败: ' + e.message);
             }
         }
+        function showSuggestions(questions) {
+            const area = document.getElementById('suggestionsArea');
+            area.innerHTML = '<div class="label">💡 推荐追问：</div>' +
+                questions.map(q => `<button class="suggestion-chip" onclick="useSuggestion(this)">${q}</button>`).join('');
+            area.className = 'suggestions show';
+        }
+
+        function useSuggestion(btn) {
+            followupInput.value = btn.textContent;
+            followupInput.focus();
+            document.getElementById('suggestionsArea').className = 'suggestions';
+        }
+
         marked.setOptions({ breaks: true });
         const queryInput = document.getElementById('queryInput');
         const startBtn = document.getElementById('startBtn');
@@ -715,6 +765,8 @@
             emptyState.style.display = 'none';
             followupArea.style.display = 'none';
             followupList.innerHTML = '';
+            document.getElementById('suggestionsArea').className = 'suggestions';
+            document.getElementById('suggestionsArea').innerHTML = '';
             currentSessionId = crypto.randomUUID();
             followupRemaining = MAX_FOLLOWUPS;
             lastProgressMessage = '';
@@ -767,6 +819,8 @@
                                 showReport(event.content);
                                 followupArea.style.display = 'block';
                                 followupCount.textContent = `剩余追问次数: ${followupRemaining}/${MAX_FOLLOWUPS}`;
+                            } else if (event.type === 'suggestions') {
+                                showSuggestions(event.questions);
                             } else if (event.type === 'done') {
                                 addProgress(event.message, true);
                             } else if (event.type === 'error') {

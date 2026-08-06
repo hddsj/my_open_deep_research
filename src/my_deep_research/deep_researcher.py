@@ -27,6 +27,7 @@ from my_deep_research.prompts import (
     research_system_prompt,
     transform_messages_into_research_topic_prompt,
     followup_answer_prompt,
+    suggest_followup_prompt,
 )
 from my_deep_research.state import (
     AgentInputState,
@@ -477,6 +478,19 @@ async def handle_followup(followup_question: str, notes: list, final_report: str
         yield {"type": "token", "content": result.answer}
         yield {"type": "done", "searched": False}
 
+async def suggest_followups(final_report: str, config: RunnableConfig) -> list:
+    configurable = Configuration.from_runnable_config(config)
+    api_key = get_api_key_for_model(configurable.research_model, config)
+    model_config = {
+        "model": configurable.research_model,
+        "max_tokens": configurable.research_model_max_tokens,
+    }
+    if api_key:
+        model_config["api_key"] = api_key
+    model = configurable_model.with_config(configurable=model_config)
+    prompt = suggest_followup_prompt.format(final_report=final_report)
+    result = await model.ainvoke([HumanMessage(content=prompt)])
+    return [line.split('. ', 1)[1] for line in result.content.strip().split('\n') if '. ' in line]
 
 async def supervisor(
     state: SupervisorState, config: RunnableConfig
