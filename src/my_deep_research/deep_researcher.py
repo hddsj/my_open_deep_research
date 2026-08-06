@@ -433,7 +433,7 @@ researcher_builder.add_edge("compress_research", END)
 
 researcher_subgraph = researcher_builder.compile()
 
-async def handle_followup(followup_question: str, notes: list, final_report: str, config: RunnableConfig) -> str:
+async def handle_followup(followup_question: str, notes: list, final_report: str, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     api_key = get_api_key_for_model(configurable.research_model, config)
     model_config = {
@@ -454,6 +454,7 @@ async def handle_followup(followup_question: str, notes: list, final_report: str
 
     print(f"[追问判断] needs_research={result.needs_research}, research_topic={result.research_topic}")
     if result.needs_research:
+        yield {"type": "progress", "message": "正在补充搜索..."}
         decision = await researcher_subgraph.ainvoke({
                 "researcher_messages": [
                     HumanMessage(content=result.research_topic)
@@ -468,12 +469,13 @@ async def handle_followup(followup_question: str, notes: list, final_report: str
                     notes=notes,
                     followup_question=followup_question,
                     new_research=new_content)
-        answer_response = await model.ainvoke([
-                HumanMessage(content=prompt),
-            ])
-        return {"answer": answer_response.content,"searched": True}
+        yield {"type": "progress", "message": "搜索完成，正在生成回答..."}
+        async for chunk in model.astream([HumanMessage(content=prompt)]):
+            yield {"type": "token", "content": chunk.content}
+        yield {"type": "done", "searched": True}
     else:
-        return {"answer": result.answer,"searched": False}
+        yield {"type": "token", "content": result.answer}
+        yield {"type": "done", "searched": False}
 
 
 async def supervisor(

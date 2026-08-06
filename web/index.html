@@ -159,6 +159,13 @@
             cursor: not-allowed;
         }
 
+        .followup-progress {
+            color: #888;
+            font-size: 13px;
+            padding: 8px 0;
+            font-style: italic;
+        }
+
         @media print {
             body * { visibility: hidden; }
             #reportArea, #reportArea * { visibility: visible; }
@@ -567,6 +574,20 @@
             followupBtn.textContent = '思考中...';
             followupInput.disabled = true;
 
+            // Create followup item with empty answer
+            const item = document.createElement('div');
+            item.className = 'followup-item';
+            item.innerHTML = `
+                <div class="question">Q: ${question}</div>
+                <div class="followup-progress"></div>
+                <div class="answer"></div>
+            `;
+            followupList.appendChild(item);
+            const answerDiv = item.querySelector('.answer');
+            const progressDiv = item.querySelector('.followup-progress');
+            let fullText = '';
+            let searched = false;
+
             try {
                 const response = await fetch('/followup', {
                     method: 'POST',
@@ -574,23 +595,43 @@
                     body: JSON.stringify({ question: question, session_id: currentSessionId })
                 });
 
-                const data = await response.json();
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
 
-                if (data.error) {
-                    alert('错误: ' + data.error);
-                    return;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+
+                    for (const part of parts) {
+                        const trimmed = part.trim();
+                        if (!trimmed.startsWith('data: ')) continue;
+                        try {
+                            const event = JSON.parse(trimmed.slice(6));
+                            if (event.type === 'progress') {
+                                progressDiv.textContent = event.message;
+                            } else if (event.type === 'token') {
+                                progressDiv.style.display = 'none';
+                                fullText += event.content;
+                                answerDiv.innerHTML = marked.parse(fullText);
+                            } else if (event.type === 'done') {
+                                searched = event.searched;
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse followup SSE:', e);
+                        }
+                    }
                 }
 
-                const item = document.createElement('div');
-                item.className = 'followup-item';
-                const searchBadge = data.searched
-                    ? '<span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:4px;font-size:0.85em;margin-left:8px;">已补充搜索</span>'
-                    : '';
-                item.innerHTML = `
-                    <div class="question">Q: ${question}${searchBadge}</div>
-                    <div class="answer">${marked.parse(data.answer)}</div>
-                `;
-                followupList.appendChild(item);
+                // Add search badge if supplementary search was performed
+                if (searched) {
+                    const badge = '<span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:4px;font-size:0.85em;margin-left:8px;">已补充搜索</span>';
+                    item.querySelector('.question').innerHTML += badge;
+                }
 
                 followupRemaining--;
                 followupCount.textContent = `剩余追问次数: ${followupRemaining}/${MAX_FOLLOWUPS}`;
