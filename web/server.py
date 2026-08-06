@@ -54,8 +54,10 @@ async def followup(request: Request):
         return {"error": "Session not found"}
     session = research_sessions[session_id]
     config = {"configurable": {"allow_clarification": False}}
-    answer = await handle_followup(question, session["notes"], session["final_report"], config)
-    return {"answer": answer["answer"], "searched": answer["searched"]}
+    async def followup_stream():
+        async for event in handle_followup(question, session["notes"], session["final_report"], config):
+            yield f"data: {json.dumps(event)}\n\n"
+    return StreamingResponse(followup_stream(), media_type="text/event-stream")
 
 @app.get("/")
 async def index():
