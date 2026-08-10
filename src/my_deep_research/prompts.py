@@ -81,6 +81,11 @@ Guidelines:
 - For product and travel research, prefer linking directly to official or primary websites.
 - For academic or scientific queries, prefer linking directly to the original paper or official journal publication.
 - If the query is in a specific language, prioritize sources published in that language.
+
+6. Research Outline
+- If the messages contain a research outline, you MUST organize and structure the research question to follow the sections defined in that outline.
+- The outline represents the user's preferred structure for the research. Each section in the outline should be reflected as a specific sub-question or research dimension.
+- Do not ignore, reorder, or omit any section from the outline.
 """
 
 
@@ -436,6 +441,26 @@ Guidelines:
 - Reference and integrate relevant facts from the original notes and report where helpful
 - Write in the SAME language as the user's follow-up question
 - Do not repeat the entire original report; focus on answering the specific follow-up question
+"""
+
+generate_outline_prompt = """You are a research planner. Based on the user's research question, generate a structured research outline.
+
+<User Question>
+{messages}
+</User Question>
+
+Requirements:
+1. Generate 4-6 sections that comprehensively cover the topic.
+2. Each section should have a short title and a one-sentence description of what it will cover.
+3. Sections should progress logically — from foundational concepts to advanced details.
+4. Write in the SAME language as the user's question.
+
+Output format: Return the outline as a numbered list. Each item should be formatted as:
+1. **Section Title** — Brief description of what this section covers.
+2. **Section Title** — Brief description of what this section covers.
+...
+
+Do not include any other text before or after the outline.
 """
 
 suggest_followup_prompt = """You are a research analyst. Based on the following research report, suggest exactly 3 follow-up questions that would help the reader gain deeper understanding.

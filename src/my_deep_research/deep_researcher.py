@@ -28,6 +28,7 @@ from my_deep_research.prompts import (
     transform_messages_into_research_topic_prompt,
     followup_answer_prompt,
     suggest_followup_prompt,
+    generate_outline_prompt,
 )
 from my_deep_research.state import (
     AgentInputState,
@@ -51,6 +52,8 @@ from my_deep_research.utils import (
     is_token_limit_exceeded,
     think_tool,
 )
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
@@ -73,7 +76,7 @@ async def clarify_with_user(
     # Step 1: Check if clarification is enabled in configuration
     configurable = Configuration.from_runnable_config(config)
     if not configurable.allow_clarification:
-        return Command(goto="write_research_brief")
+        return Command(goto="generate_outline")
 
     # Step 2: Prepare the model for structured clarification analysis
     messages = state["messages"]
@@ -107,10 +110,42 @@ async def clarify_with_user(
         )
     else:
         return Command(
-            goto="write_research_brief",
+            goto="generate_outline",
             update={"messages": [AIMessage(content=response.verification)]},
         )
 
+async def generate_outline(
+    state: AgentState, config: RunnableConfig
+):
+    """Generate a research outline based on the user's request."""
+    configurable = Configuration.from_runnable_config(config)
+    research_model_config = {
+        "model": configurable.research_model,
+        "max_tokens": configurable.research_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.research_model, config),
+        "tags": ["langsmith:nostream"],
+    }
+    research_model = (
+        configurable_model
+        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+        .with_config(research_model_config)
+    )
+
+    prompt_content = generate_outline_prompt.format(
+        messages=get_buffer_string(state.get("messages", [])),
+    )
+    
+    response = await research_model.ainvoke(
+        [HumanMessage(content=prompt_content)]
+    )
+
+    outline = response.content  # LLM 返回的大纲文本
+    user_response = interrupt(outline)  # 暂停！把大纲发给用户，等用户确认  
+    
+    return Command(
+        goto="write_research_brief",
+        update={"messages": [AIMessage(content=user_response)]},
+    )
 
 async def write_research_brief(
     state: AgentState, config: RunnableConfig
@@ -639,12 +674,14 @@ deep_researcher_builder = StateGraph(
 
 deep_researcher_builder.add_node("clarify_with_user", clarify_with_user)
 deep_researcher_builder.add_node("write_research_brief", write_research_brief)
+deep_researcher_builder.add_node("generate_outline", generate_outline)
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)
 
 deep_researcher_builder.add_edge(START, "clarify_with_user")
+deep_researcher_builder.add_edge("clarify_with_user", "generate_outline")
 deep_researcher_builder.add_edge("research_supervisor", "final_report_generation")
 deep_researcher_builder.add_edge("final_report_generation", END)
 
 # Compile the graph
-deep_researcher = deep_researcher_builder.compile()
+deep_researcher = deep_researcher_builder.compile(checkpointer=MemorySaver())

@@ -8,6 +8,7 @@ from my_deep_research.deep_researcher import deep_researcher, handle_followup, s
 load_dotenv()
 from pathlib import Path
 from datetime import datetime
+from langgraph.types import Command
 
 app = FastAPI()
 
@@ -22,6 +23,34 @@ def load_sessions():
         with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}    
+
+
+async def resume_event_generator(session_id, outline, config, query=""):
+    final_report = ""
+    notes = []
+    async for event in deep_researcher.astream_events(
+        Command(resume=outline), config=config, version="v2"
+    ):
+        if event["event"] == "on_chain_start" and event["name"] in node_messages:
+            yield f"data: {json.dumps({'type': 'progress', 'message': node_messages[event['name']]})}\n\n"
+        if event["event"] == "on_chain_end" and event["name"] == "final_report_generation":
+            final_report = event["data"]["output"]["final_report"]
+        if event["event"] == "on_chain_end" and event["name"] == "research_supervisor":
+            notes = event["data"]["output"].get("notes", [])
+        if event["event"] == "on_tool_start" and event["name"] == "tavily_search":
+            queries = event["data"].get("input", {}).get("queries", [])
+            for q in queries:
+                yield f"data: {json.dumps({'type': 'progress', 'message': f'正在搜索: {q}'})}\n\n"
+    yield f"data: {json.dumps({'type': 'report', 'content': final_report})}\n\n"
+    suggestions = await suggest_followups(final_report, config)
+    yield f"data: {json.dumps({'type': 'suggestions', 'questions': suggestions})}\n\n"
+    research_sessions[session_id] = {
+        "query": query,
+        "created_at": datetime.now().isoformat(),
+        "notes": notes,
+        "final_report": final_report
+    }
+    save_sessions()
 
 
 # 存储每次研究的上下文，追问时用
@@ -76,8 +105,39 @@ async def research(request: Request):
         "max_search_results": data.get("max_search_results", 5),
         "max_researcher_iterations": data.get("max_researcher_iterations", 5),
         "max_concurrent_research_units": data.get("max_concurrent_research_units", 5),
+        "thread_id": session_id,
     }}
-    return StreamingResponse(event_generator(query, session_id, config), media_type="text/event-stream")
+    # ainvoke — 跑图启动图运行。图从 START 开始跑 → clarify_with_user → generate_outline → 遇到 interrupt() → 暂停
+    result = await deep_researcher.ainvoke(
+    {"messages": [{"role": "user", "content": query}]}, 
+    config
+    )   
+    # aget_state — 获取当前图的 state（状态）。此时图已经暂停在 interrupt() 处
+    state = await deep_researcher.aget_state(config)
+    # 取出大纲
+    outline = state.tasks[0].interrupts[0].value
+    # 返回给前端
+    return {"outline": outline, "session_id": session_id}
+    # return StreamingResponse(event_generator(query, session_id, config), media_type="text/event-stream")
+
+@app.post("/confirm_outline")
+async def confirm_outline(request: Request):
+    data = await request.json()
+    session_id = data.get("session_id")
+    outline = data.get("outline")
+    query = data.get("query", "")
+    config = {"configurable": {
+        "allow_clarification": False,
+        "research_model": data.get("research_model", "deepseek-chat"),
+        "max_search_results": data.get("max_search_results", 5),
+        "max_researcher_iterations": data.get("max_researcher_iterations", 5),
+        "max_concurrent_research_units": data.get("max_concurrent_research_units", 5),
+        "thread_id": session_id,
+    }}
+    return StreamingResponse(
+        resume_event_generator(session_id, outline, config, query), 
+        media_type="text/event-stream"
+    )
 
 @app.post("/followup")
 async def followup(request: Request):
