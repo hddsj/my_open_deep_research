@@ -463,6 +463,34 @@ Output format: Return the outline as a numbered list. Each item should be format
 Do not include any other text before or after the outline.
 """
 
+evaluate_report_prompt = """You are a research quality evaluator. Analyze the following research report and determine whether it needs additional research.
+
+<Original Question>
+{question}
+</Original Question>
+
+<Report>
+{report}
+</Report>
+
+Evaluate the report on these criteria:
+1. **Coverage** — Does the report address all major aspects of the question?
+2. **Depth** — Are claims supported with specific data, examples, or evidence rather than vague statements?
+3. **Gaps** — Are there sections that are noticeably shallow or missing key information?
+
+If the report is sufficient, respond with:
+VERDICT: PASS
+
+If the report needs improvement, respond with:
+VERDICT: NEEDS_MORE
+GAPS:
+1. [Specific topic/angle that needs deeper research]
+2. [Another specific gap]
+3. [Another specific gap if applicable]
+
+Write your analysis in the SAME language as the report. Be strict — only pass reports that are genuinely thorough.
+"""
+
 suggest_followup_prompt = """You are a research analyst. Based on the following research report, suggest exactly 3 follow-up questions that would help the reader gain deeper understanding.
 
 <Report>

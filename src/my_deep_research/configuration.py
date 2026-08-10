@@ -20,6 +20,11 @@ class SearchAPI(Enum):
 class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
 
+    max_research_loops: int = Field(
+        default=1,
+        description="Maximum number of research loops to run"
+    )
+    
     # General Configuration
     max_structured_output_retries: int = Field(
         default=3,

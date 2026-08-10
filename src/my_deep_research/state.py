@@ -98,6 +98,7 @@ class AgentState(MessagesState):
     raw_notes: Annotated[list[str], override_reducer] = []
     notes: Annotated[list[str], override_reducer] = []
     final_report: str = ""
+    research_loops: Annotated[int, operator.add] = 0
 
 
 class SupervisorState(TypedDict):

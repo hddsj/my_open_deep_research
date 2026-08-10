@@ -35,6 +35,8 @@ async def resume_event_generator(session_id, outline, config, query=""):
             yield f"data: {json.dumps({'type': 'progress', 'message': node_messages[event['name']]})}\n\n"
         if event["event"] == "on_chain_end" and event["name"] == "final_report_generation":
             final_report = event["data"]["output"]["final_report"]
+        if event["event"] == "on_chain_start" and event["name"] == "research_supervisor" and final_report:
+            yield f"data: {json.dumps({'type': 'progress', 'message': '⚡ 报告不够深入，启动补充研究...'})}\n\n"
         if event["event"] == "on_chain_end" and event["name"] == "research_supervisor":
             notes = event["data"]["output"].get("notes", [])
         if event["event"] == "on_tool_start" and event["name"] == "tavily_search":
@@ -64,6 +66,7 @@ node_messages = {
     "researcher": "研究员正在搜索...",
     "compress_research": "正在压缩研究结果...",
     "final_report_generation": "正在生成最终报告...",
+    "evaluate_report": "正在评估报告质量...",
 }
 
 async def event_generator(query: str, session_id: str, config: dict):
