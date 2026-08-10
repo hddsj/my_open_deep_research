@@ -29,6 +29,7 @@ from my_deep_research.prompts import (
     followup_answer_prompt,
     suggest_followup_prompt,
     generate_outline_prompt,
+    evaluate_report_prompt,
 )
 from my_deep_research.state import (
     AgentInputState,
@@ -54,6 +55,8 @@ from my_deep_research.utils import (
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
+
+
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
@@ -186,7 +189,7 @@ async def write_research_brief(
         goto="research_supervisor",
         update={
             "research_brief": response.research_brief,
-            "supervisor_messages": [HumanMessage(content=response.research_brief)],
+            "supervisor_messages": {"type": "override", "value": [HumanMessage(content=response.research_brief)]},
         },
     )
 
@@ -453,6 +456,57 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         "messages": [AIMessage(content="Report generation failed after maximum retries")],
     }
 
+async def evaluate_report(state: AgentState, config: RunnableConfig):
+    configurable = Configuration.from_runnable_config(config)
+    research_loops = state.get("research_loops", 0)
+
+    # 已达最大轮次，直接结束
+    if research_loops >= configurable.max_research_loops:
+        return Command(
+            goto=END,
+        )
+    
+    # 配置模型
+    model_config = {
+        "model": configurable.research_model,
+        "max_tokens": configurable.research_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.research_model, config),
+        "tags": ["langsmith:nostream"],
+    }
+    model = (
+        configurable_model
+        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+        .with_config(model_config)
+    )
+
+    # 调用 LLM 评估
+    prompt_content = evaluate_report_prompt.format(
+        question=state.get("research_brief", ""),
+        report=state.get("final_report", ""),
+    )
+    response = await model.ainvoke(
+        [HumanMessage(content=prompt_content)]
+    )
+    # 解析结果
+    if "VERDICT: PASS" in response.content:
+        return Command(goto=END)
+
+    # VERDICT: FAIL，继续研究
+    # 只提取 GAPS 部分
+    gaps = ""
+    if "GAPS:" in response.content:
+        gaps = response.content.split("GAPS:")[1].strip()
+    else:
+        gaps = response.content
+    # 把 gaps 作为消息加入，让 write_research_brief 重新生成研究计划
+    return Command(
+        goto="write_research_brief",
+        update={
+            "messages": [HumanMessage(content=f"Please conduct additional research on the following gaps:\n{gaps}")],
+            "research_loops": 1,
+        },
+    )   
+
 # Build researcher subgraph
 researcher_builder = StateGraph(
     ResearcherState,
@@ -677,11 +731,12 @@ deep_researcher_builder.add_node("write_research_brief", write_research_brief)
 deep_researcher_builder.add_node("generate_outline", generate_outline)
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)
+deep_researcher_builder.add_node("evaluate_report", evaluate_report)  
 
 deep_researcher_builder.add_edge(START, "clarify_with_user")
 deep_researcher_builder.add_edge("clarify_with_user", "generate_outline")
 deep_researcher_builder.add_edge("research_supervisor", "final_report_generation")
-deep_researcher_builder.add_edge("final_report_generation", END)
+deep_researcher_builder.add_edge("final_report_generation", "evaluate_report") 
 
 # Compile the graph
 deep_researcher = deep_researcher_builder.compile(checkpointer=MemorySaver())
