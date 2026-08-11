@@ -12,6 +12,7 @@ class SearchAPI(Enum):
     """Enumeration of available search API providers."""
     
     TAVILY = "tavily"
+    DUCKDUCKGO = "duckduckgo"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     NONE = "none"
@@ -41,7 +42,7 @@ class Configuration(BaseModel):
 
     # Search Configuration
     search_api: SearchAPI = Field(
-        default=SearchAPI.TAVILY,
+        default=SearchAPI.DUCKDUCKGO,
         description="The search API to use for research"
     )
     max_search_results: int = Field(
