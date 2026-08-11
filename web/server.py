@@ -39,7 +39,7 @@ async def resume_event_generator(session_id, outline, config, query=""):
             yield f"data: {json.dumps({'type': 'progress', 'message': '⚡ 报告不够深入，启动补充研究...'})}\n\n"
         if event["event"] == "on_chain_end" and event["name"] == "research_supervisor":
             notes = event["data"]["output"].get("notes", [])
-        if event["event"] == "on_tool_start" and event["name"] == "tavily_search":
+        if event["event"] == "on_tool_start" and event["name"] in ("tavily_search", "duckduckgo_search_tool"):
             queries = event["data"].get("input", {}).get("queries", [])
             for q in queries:
                 yield f"data: {json.dumps({'type': 'progress', 'message': f'正在搜索: {q}'})}\n\n"
@@ -82,7 +82,7 @@ async def event_generator(query: str, session_id: str, config: dict):
             final_report = event["data"]["output"]["final_report"]
         if event["event"] == "on_chain_end" and event["name"] == "research_supervisor":
             notes = event["data"]["output"].get("notes", [])
-        if event["event"] == "on_tool_start" and event["name"] == "tavily_search":
+        if event["event"] == "on_tool_start" and event["name"] in ("tavily_search", "duckduckgo_search_tool"):
             queries = event["data"].get("input", {}).get("queries", [])
             for q in queries:
                 yield f"data: {json.dumps({'type': 'progress', 'message': f'正在搜索: {q}'})}\n\n"

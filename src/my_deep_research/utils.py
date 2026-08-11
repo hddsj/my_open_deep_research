@@ -12,6 +12,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import InjectedToolArg, tool
 from tavily import AsyncTavilyClient
+import httpx
+from duckduckgo_search import DDGS
 
 from my_deep_research.configuration import Configuration, SearchAPI
 from my_deep_research.prompts import summarize_webpage_prompt
@@ -230,6 +232,107 @@ async def tavily_search(
 
 
 ##########################
+# DuckDuckGo + Jina Search Tool Utils
+##########################
+
+async def jina_fetch_content(url: str, max_length: int = 50000) -> str:
+    """Fetch clean webpage content via Jina Reader API.
+
+    Args:
+        url: The webpage URL to extract content from
+        max_length: Maximum character length to return
+
+    Returns:
+        Clean markdown content from the webpage, or empty string on failure
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"https://r.jina.ai/{url}",
+                headers={"Accept": "text/markdown"}
+            )
+            if response.status_code == 200:
+                return response.text[:max_length]
+    except Exception as e:
+        logging.warning(f"Jina fetch failed for {url}: {e}")
+    return ""
+
+
+async def duckduckgo_search_async(search_queries: List[str], max_results: int = 5):
+    """Execute multiple DuckDuckGo search queries.
+
+    Args:
+        search_queries: List of search query strings to execute
+        max_results: Maximum number of results per query
+
+    Returns:
+        List of search result dictionaries with title, url, content
+    """
+    all_results = []
+    for query in search_queries:
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=max_results))
+                all_results.append({"query": query, "results": results})
+        except Exception as e:
+            logging.warning(f"DuckDuckGo search failed for '{query}': {e}")
+            all_results.append({"query": query, "results": []})
+    return all_results
+
+
+DUCKDUCKGO_SEARCH_DESCRIPTION = (
+    "A free web search engine. Use this to search for information about any topic. "
+    "Useful for when you need to answer questions about current events or gather research data."
+)
+
+
+@tool(description=DUCKDUCKGO_SEARCH_DESCRIPTION)
+async def duckduckgo_search_tool(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    config: RunnableConfig = None
+) -> str:
+    """Fetch and summarize search results using DuckDuckGo + Jina Reader.
+
+    Args:
+        queries: List of search queries to execute
+        max_results: Maximum number of results to return per query
+        config: Runtime configuration for model settings
+
+    Returns:
+        Formatted string containing summarized search results
+    """
+    # Step 1: Execute DuckDuckGo searches
+    search_results = await duckduckgo_search_async(queries, max_results=max_results)
+
+    # Step 2: Deduplicate results by URL
+    unique_results = {}
+    for response in search_results:
+        for result in response["results"]:
+            url = result.get("href", "")
+            if url and url not in unique_results:
+                unique_results[url] = {
+                    "title": result.get("title", ""),
+                    "content": result.get("body", ""),
+                    "url": url,
+                    "query": response["query"],
+                }
+
+    # Step 3: Format output using DuckDuckGo's built-in snippets (no Jina/LLM needed)
+    if not unique_results:
+        return "No valid search results found. Please try different search queries."
+
+    formatted_output = "Search results: \n\n"
+    for i, (url, result) in enumerate(unique_results.items()):
+        formatted_output += f"\n\n--- SOURCE {i+1}: {result['title']} ---\n"
+        formatted_output += f"URL: {url}\n\n"
+        formatted_output += f"SUMMARY:\n{result['content']}\n\n"
+        formatted_output += "\n\n" + "-" * 80 + "\n"
+
+    return formatted_output
+
+
+##########################
 # Reflection Tool Utils
 ##########################
 
@@ -270,6 +373,14 @@ async def get_search_tool(search_api: SearchAPI):
     """
     if search_api == SearchAPI.TAVILY:
         search_tool = tavily_search
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search",
+        }
+        return [search_tool]
+    elif search_api == SearchAPI.DUCKDUCKGO:
+        search_tool = duckduckgo_search_tool
         search_tool.metadata = {
             **(search_tool.metadata or {}),
             "type": "search",
