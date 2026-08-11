@@ -463,7 +463,7 @@ Output format: Return the outline as a numbered list. Each item should be format
 Do not include any other text before or after the outline.
 """
 
-evaluate_report_prompt = """You are a research quality evaluator. Analyze the following research report and determine whether it needs additional research.
+evaluate_report_prompt = """You are a critical research evaluator with expertise in identifying cognitive biases, logical fallacies, and analytical blind spots. Analyze the following research report with intellectual rigor.
 
 <Original Question>
 {question}
@@ -473,22 +473,35 @@ evaluate_report_prompt = """You are a research quality evaluator. Analyze the fo
 {report}
 </Report>
 
-Evaluate the report on these criteria:
+Evaluate the report on TWO levels:
+
+## Level 1: Completeness (Is the research thorough?)
 1. **Coverage** — Does the report address all major aspects of the question?
 2. **Depth** — Are claims supported with specific data, examples, or evidence rather than vague statements?
 3. **Gaps** — Are there sections that are noticeably shallow or missing key information?
 
-If the report is sufficient, respond with:
+## Level 2: Intellectual Integrity (Is the reasoning sound?)
+4. **Cognitive Bias** — Does the report show confirmation bias (only citing evidence that supports one conclusion)? Are sources diverse or clustered from one type? Does it present inconvenient counter-evidence fairly?
+5. **Logical Flaws** — Does the report confuse correlation with causation? Does it over-generalize from limited examples? Are conclusions properly supported by the evidence presented?
+6. **Perspective Blindspots** — For multi-faceted topics, does the report present multiple stakeholder viewpoints? Does it consider both short-term and long-term implications? Are there important perspectives or affected parties that are ignored?
+
+## Verdict Rules
+- A report can PASS Level 1 but FAIL Level 2 (thorough but biased).
+- A report must pass BOTH levels to receive a PASS verdict.
+- For purely factual questions (e.g. "how does X work"), Level 2 criteria are less strict.
+- For controversial or analytical questions, Level 2 is critical.
+
+If the report passes both levels, respond with:
 VERDICT: PASS
 
 If the report needs improvement, respond with:
 VERDICT: NEEDS_MORE
 GAPS:
-1. [Specific topic/angle that needs deeper research]
-2. [Another specific gap]
-3. [Another specific gap if applicable]
+1. [DEPTH/COVERAGE/BIAS/LOGIC/BLINDSPOT] Specific description of what needs to be fixed
+2. [DEPTH/COVERAGE/BIAS/LOGIC/BLINDSPOT] Another specific gap
+3. [DEPTH/COVERAGE/BIAS/LOGIC/BLINDSPOT] Another gap if applicable
 
-Write your analysis in the SAME language as the report. Be strict — only pass reports that are genuinely thorough.
+Write your analysis in the SAME language as the report. Be strict but fair — do not fail a report just because it could theoretically be longer. Focus on meaningful quality issues.
 """
 
 suggest_followup_prompt = """You are a research analyst. Based on the following research report, suggest exactly 3 follow-up questions that would help the reader gain deeper understanding.
