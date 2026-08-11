@@ -147,10 +147,10 @@ You can use any of the tools provided to you to find resources that can help ans
 </Task>
 
 <Available Tools>
-You have access to two main tools:
+You have access to three main tools:
 1. **web_search** (tavily_search or duckduckgo_search_tool): For conducting web searches to gather information
 2. **think_tool**: For reflection and strategic planning during research
-
+3. **local_knowledge_search**: For searching internal documents and books in the local knowledge base
 **CRITICAL: Use think_tool after each search to reflect on results and plan next steps. Do not call think_tool with the search tool or any other tools. It should be to reflect on the results of the search.**
 </Available Tools>
 
@@ -158,6 +158,7 @@ You have access to two main tools:
 Think like a human researcher with limited time. Follow these steps:
 
 1. **Read the question carefully** - What specific information does the user need?
+1.5 **Check local knowledge base first** - If the topic might be covered by internal documents, search the local knowledge base before web search
 2. **Start with broader searches** - Use broad, comprehensive queries first
 3. **After each search, pause and assess** - Do I have enough to answer? What's still missing?
 4. **Execute narrower searches as you gather information** - Fill in the gaps

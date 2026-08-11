@@ -19,6 +19,9 @@ from my_deep_research.configuration import Configuration, SearchAPI
 from my_deep_research.prompts import summarize_webpage_prompt
 from my_deep_research.state import Summary
 
+from my_deep_research.knowledge_base import search
+
+
 
 ##########################
 # Misc Utils
@@ -332,6 +335,23 @@ async def duckduckgo_search_tool(
 
     return formatted_output
 
+LOCAL_KB_DESCRIPTION = (
+    "Search the local knowledge base for relevant information. "
+    "Use this to find information from internal documents and books."
+)
+@tool(description=LOCAL_KB_DESCRIPTION)
+async def local_knowledge_search(queries: List[str]) -> str:
+    print(f"[local_knowledge_search] 查询: {queries}")
+    formatted_output = "Local knowledge base results:\n\n"
+    for query in queries:
+        results = search(query, 3)
+        docs = results["documents"][0]
+        metas = results["metadatas"][0]
+        for i, (doc, meta) in enumerate(zip(docs, metas)):
+            formatted_output += f"\n--- SOURCE {i+1}: {meta['source']} (page {meta['page']}) ---\n"
+            formatted_output += f"{doc}\n"
+            formatted_output += "-" * 80 + "\n"
+    return formatted_output
 
 ##########################
 # Reflection Tool Utils
@@ -408,7 +428,7 @@ async def get_all_tools(config: RunnableConfig):
     search_api = SearchAPI(get_config_value(configurable.search_api))
     search_tools = await get_search_tool(search_api)
     tools.extend(search_tools)
-
+    tools.append(local_knowledge_search)
     return tools
 
 
