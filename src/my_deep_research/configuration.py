@@ -22,7 +22,7 @@ class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
 
     max_research_loops: int = Field(
-        default=1,
+        default=2,
         description="Maximum number of research loops to run"
     )
     
@@ -36,7 +36,7 @@ class Configuration(BaseModel):
         description="Whether to allow the researcher to ask the user clarifying questions before starting research"
     )
     max_concurrent_research_units: int = Field(
-        default=5,
+        default=3,
         description="Maximum number of research units to run concurrently"
     )
 
@@ -60,7 +60,7 @@ class Configuration(BaseModel):
         description="Maximum number of iterations for each researcher"
     )
     max_react_tool_calls: int = Field(
-        default=10,
+        default=3,
         description="Maximum number of tool calls a researcher can make before being forced to stop"
     )
     # Research Configuration

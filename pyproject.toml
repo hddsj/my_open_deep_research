@@ -15,7 +15,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.1",
     "httpx>=0.24.0",
-    "duckduckgo-search>=7.0.0",
+    "ddgs>=7.0.0",
 ]
 
 [build-system]
