@@ -13,7 +13,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import InjectedToolArg, tool
 from tavily import AsyncTavilyClient
 import httpx
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 from my_deep_research.configuration import Configuration, SearchAPI
 from my_deep_research.prompts import summarize_webpage_prompt
@@ -271,12 +271,13 @@ async def duckduckgo_search_async(search_queries: List[str], max_results: int = 
     all_results = []
     for query in search_queries:
         try:
-            with DDGS() as ddgs:
+            with DDGS(timeout=20) as ddgs:
                 results = list(ddgs.text(query, max_results=max_results))
                 all_results.append({"query": query, "results": results})
         except Exception as e:
             logging.warning(f"DuckDuckGo search failed for '{query}': {e}")
             all_results.append({"query": query, "results": []})
+        await asyncio.sleep(0.3)
     return all_results
 
 

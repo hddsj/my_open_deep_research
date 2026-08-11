@@ -166,9 +166,10 @@ Think like a human researcher with limited time. Follow these steps:
 
 <Hard Limits>
 **Tool Call Budgets** (Prevent excessive searching):
-- **Simple queries**: Use 2-3 search tool calls maximum
-- **Complex queries**: Use up to 5 search tool calls maximum
-- **Always stop**: After 5 search tool calls if you cannot find the right sources
+- **Simple queries**: Use 1-2 search tool calls maximum
+- **Complex queries**: Use up to 3 search tool calls maximum
+- **Always stop**: After 3 search tool calls if you cannot find the right sources
+- **Early stop**: if you have enough information to answer the question, stop immediately
 
 **Stop Immediately When**:
 - You can answer the user's question comprehensively
@@ -501,7 +502,11 @@ GAPS:
 2. [DEPTH/COVERAGE/BIAS/LOGIC/BLINDSPOT] Another specific gap
 3. [DEPTH/COVERAGE/BIAS/LOGIC/BLINDSPOT] Another gap if applicable
 
-Write your analysis in the SAME language as the report. Be strict but fair — do not fail a report just because it could theoretically be longer. Focus on meaningful quality issues.
+Write your analysis in the SAME language as the report.
+
+VERDICT guidelines:
+- PASS: The report addresses the core question with reasonable coverage and no major factual errors or obvious one-sided bias. Minor gaps are acceptable.
+- NEEDS_MORE: ONLY use this when the report has CRITICAL issues — such as completely missing a core aspect of the question, presenting a clearly one-sided view with no counter-evidence, or containing major factual errors. Do NOT trigger NEEDS_MORE just because the report could theoretically be more detailed or comprehensive.
 """
 
 suggest_followup_prompt = """You are a research analyst. Based on the following research report, suggest exactly 3 follow-up questions that would help the reader gain deeper understanding.

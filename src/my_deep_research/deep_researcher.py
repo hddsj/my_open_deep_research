@@ -488,13 +488,17 @@ async def evaluate_report(state: AgentState, config: RunnableConfig):
         [HumanMessage(content=prompt_content)]
     )
     # 解析结果
+    print(f"[evaluate_report] 轮次: {research_loops}/{configurable.max_research_loops}")
     if "VERDICT: PASS" in response.content:
+        print("[evaluate_report] ✅ VERDICT: PASS — 报告通过")
         return Command(goto=END)
 
-    # VERDICT: FAIL，继续研究
+    # VERDICT: NEEDS_MORE，继续研究
     # 只提取 GAPS 部分
     gaps = ""
+    print(f"[evaluate_report] ❌ VERDICT: NEEDS_MORE — 需要补充研究")
     if "GAPS:" in response.content:
+        print(f"[evaluate_report] GAPS:\n{response.content.split('GAPS:')[1].strip()}")
         gaps = response.content.split("GAPS:")[1].strip()
     else:
         gaps = response.content
@@ -504,6 +508,7 @@ async def evaluate_report(state: AgentState, config: RunnableConfig):
         update={
             "messages": [HumanMessage(content=f"Please conduct additional research on the following gaps:\n{gaps}")],
             "research_loops": 1,
+            "supervisor_messages": {"type": "override", "value": []},
         },
     )   
 
