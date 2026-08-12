@@ -344,7 +344,7 @@ async def local_knowledge_search(queries: List[str]) -> str:
     print(f"[local_knowledge_search] 查询: {queries}")
     formatted_output = "Local knowledge base results:\n\n"
     for query in queries:
-        results = search(query, 3)
+        results = search(query, 5)
         docs = results["documents"][0]
         metas = results["metadatas"][0]
         for i, (doc, meta) in enumerate(zip(docs, metas)):
