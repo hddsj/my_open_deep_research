@@ -19,6 +19,12 @@ dependencies = [
     "chromadb>=1.5.9",
     "pymupdf>=1.28.2",
     "rank-bm25>=0.2.2",
+    "sentence-transformers>=5.7.0",
+    "jieba>=0.42.1",
+    "modelscope>=1.39.1",
+    "langchain-experimental>=0.4.2",
+    "langchain-text-splitters>=1.1.2",
+    "langchain-huggingface>=1.2.2",
 ]
 
 [build-system]

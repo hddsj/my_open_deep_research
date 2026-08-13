@@ -348,7 +348,7 @@ async def local_knowledge_search(queries: List[str]) -> str:
         docs = results["documents"][0]
         metas = results["metadatas"][0]
         for i, (doc, meta) in enumerate(zip(docs, metas)):
-            formatted_output += f"\n--- SOURCE {i+1}: {meta['source']} (page {meta['page']}) ---\n"
+            formatted_output += f"\n--- [本地知识库] 《{meta['source']}》 第{meta['page']}页 ---\n"
             formatted_output += f"{doc}\n"
             formatted_output += "-" * 80 + "\n"
     return formatted_output

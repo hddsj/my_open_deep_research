@@ -150,7 +150,7 @@ You can use any of the tools provided to you to find resources that can help ans
 You have access to three main tools:
 1. **web_search** (tavily_search or duckduckgo_search_tool): For conducting web searches to gather information
 2. **think_tool**: For reflection and strategic planning during research
-3. **local_knowledge_search**: For searching internal documents and books in the local knowledge base
+3. **local_knowledge_search**: For searching internal documents and books in the local knowledge base. **IMPORTANT: Always rewrite your query into precise technical keywords before searching.** Do NOT use natural language questions as queries. Instead, extract key terms, expand abbreviations, and add related technical terms.
 **CRITICAL: Use think_tool after each search to reflect on results and plan next steps. Do not call think_tool with the search tool or any other tools. It should be to reflect on the results of the search.**
 </Available Tools>
 
@@ -158,7 +158,10 @@ You have access to three main tools:
 Think like a human researcher with limited time. Follow these steps:
 
 1. **Read the question carefully** - What specific information does the user need?
-1.5 **Check local knowledge base first** - If the topic might be covered by internal documents, search the local knowledge base before web search
+1.5 **Check local knowledge base first** - If the topic might be covered by internal documents, search the local knowledge base before web search. **Rewrite queries for better retrieval:**
+   - Bad: "怎么管理容器" → Good: "Docker 容器管理 数据卷 网络配置"
+   - Bad: "how to handle errors" → Good: "try catch exception handling error recovery"
+   - Bad: "类怎么继承" → Good: "Python 类继承 super 方法重写 多态"
 2. **Start with broader searches** - Use broad, comprehensive queries first
 3. **After each search, pause and assess** - Do I have enough to answer? What's still missing?
 4. **Execute narrower searches as you gather information** - Fill in the gaps
@@ -222,9 +225,13 @@ The report should be structured like this:
 - Assign each unique URL a single citation number in your text
 - End with ### Sources that lists each source with corresponding numbers
 - IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
+- For web sources, use: [1] Source Title: URL
+- For local knowledge base sources (marked with [本地知识库] in tool results), use: [1] 《文件名》 第X页
+- **CRITICAL: You MUST preserve ALL local knowledge base sources.** Any result from local_knowledge_search marked with [本地知识库] 《文件名》 第X页 MUST appear in the Sources list. Do NOT omit them.
 - Example format:
   [1] Source Title: URL
-  [2] Source Title: URL
+  [2] 《Docker从入门到实践》 第42页
+  [3] 《Python编程》 第156页
 </Citation Rules>
 
 Critical Reminder: It is extremely important that any information that is even remotely relevant to the user's research topic is preserved verbatim (e.g. don't rewrite it, don't summarize it, don't paraphrase it).
@@ -378,9 +385,13 @@ Format the report in clear markdown with proper structure and include source ref
 - End with ### Sources that lists each source with corresponding numbers
 - IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
 - Each source should be a separate line item in a list, so that in markdown it is rendered as a list.
+- For web sources, use: [1] Source Title: URL
+- For local knowledge base sources, use: [1] 《文件名》 第X页
+- **CRITICAL: You MUST include local knowledge base sources in the Sources list.** If information came from local_knowledge_search results (identified by source filename and page number), you MUST cite them using the 《文件名》 第X页 format. Do NOT omit local sources.
 - Example format:
   [1] Source Title: URL
-  [2] Source Title: URL
+  [2] 《Docker从入门到实践》 第42页
+  [3] 《Python编程》 第156页
 - Citations are extremely important. Make sure to include these, and pay a lot of attention to getting these right. Users will often use these citations to look into more information.
 </Citation Rules>
 """
