@@ -6,6 +6,7 @@ from sentence_transformers import CrossEncoder
 from modelscope import snapshot_download
 import jieba
 import pickle
+import re
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
@@ -19,7 +20,42 @@ _reranker = None
 
 _model_dir = None
 
+# chromadb客户端对象
+_chromadb_client = None
+# embedding_function对象
+_ef = None
+# knowledge_collection对象
+_knowledge_collection = None
+
+
+def _get_reranker():
+    """
+    获取reranker对象
+    """
+    global _reranker
+    if _reranker is None:
+        model_dir = snapshot_download("BAAI/bge-reranker-base", ignore_file_pattern=["onnx/*"])
+        _reranker = CrossEncoder(model_dir)
+    return _reranker
+
+def _get_knowledge_client_collection():
+    """
+    获取知识库客户端、集合和embedding_function对象
+    """
+    global _knowledge_collection,_chromadb_client,_ef
+    if _chromadb_client is None:
+        _chromadb_client = chromadb.PersistentClient(path="./chroma_db")
+    if _ef is None:
+        _ef = SentenceTransformerEmbeddingFunction(model_name=_get_model_dir())
+    if _knowledge_collection is None:
+        _knowledge_collection = _chromadb_client.get_or_create_collection("knowledge_base", embedding_function=_ef)
+    
+    return _chromadb_client,_knowledge_collection, _ef
+
 def _get_model_dir():
+    """
+    获取模型目录
+    """
     global _model_dir
     if _model_dir is None:
         _model_dir = snapshot_download(ENCODING_MODEL)
@@ -92,6 +128,8 @@ def build_index(documents,folder_path):
     """
     # 全局变量,用于存储BM25索引
     global _bm25_index, _bm25_chunks, _bm25_metadatas
+    # 全局变量，用于存储chromadb客户端、集合和embedding函数
+    global _knowledge_collection,_chromadb_client,_ef
     # 获取签名缓存
     cache_path = "./bm25_cache.pkl"
     fingerprint = get_fingerprint(folder_path)
@@ -106,21 +144,33 @@ def build_index(documents,folder_path):
         
     all_ids = []
     
-    # 获取chromadb客户端(类似于数据库的客户端)
-    client = chromadb.PersistentClient(path="./chroma_db")
-    # 获取或创建知识库集合(类似于数据库的表)
-    ef = SentenceTransformerEmbeddingFunction(model_name=_get_model_dir())
-    collection = client.get_or_create_collection("knowledge_base", embedding_function=ef)
+    client, collection, ef = _get_knowledge_client_collection()        
+
+    books = {}
+    # 按书名分组
     for doc in documents:
-        chunks = split_text(doc["text"])
+        source = doc["source"]
+        if source not in books:
+            books[source] = ""
+        # 拼接文本（插入页码标记）
+        books[source] += f"[PAGE:{doc['page']}]" + doc["text"]
+
+    # 遍历每本书
+    for source, text in books.items():   
+        chunks = split_text(text)
         # 判断是否为空白页,若是空白页,则不加入collection
         if not chunks:
             continue
-        # 收集 ids
-        all_ids.extend([f"{doc['source']}_{doc['page']}_{i}" for i in range(len(chunks))])  
-        # 在循环中存所有chunks和metadatas
-        _bm25_metadatas.extend([{"source": doc["source"], "page": doc["page"]} for _ in chunks])
-        _bm25_chunks.extend(chunks)
+        for i, chunk in enumerate(chunks):
+            # 通过正则表达式提取页码
+            pages = re.findall(r'\[PAGE:(\d+)\]', chunk)
+            page = int(pages[0]) if pages else 0
+            # 去掉页码标记
+            clean_chunk = re.sub(r'\[PAGE:\d+\]', '', chunk)
+            # 收集数据
+            all_ids.append(f"{source}_{page}_{i}")
+            _bm25_metadatas.append({"source": source, "page": page})
+            _bm25_chunks.append(clean_chunk)
     # 建立chromdb知识库索引
     batch_size = 5000
     for i in range(0, len(_bm25_chunks), batch_size):
@@ -152,11 +202,7 @@ def search(query, top_k):
     Returns:
         dict: Search results with documents and metadata
     """
-    # 获取chromadb客户端(类似于数据库的客户端)
-    client = chromadb.PersistentClient(path="./chroma_db")
-    # 获取或创建知识库集合(类似于数据库的表)
-    ef = SentenceTransformerEmbeddingFunction(model_name=_get_model_dir())
-    collection = client.get_or_create_collection("knowledge_base", embedding_function=ef)
+    client, collection, ef = _get_knowledge_client_collection()        
     results = collection.query(
         query_texts=[query],
         n_results=top_k
@@ -192,12 +238,10 @@ def search(query, top_k):
     merged_list = sorted(merged.values(), key=lambda x: x["score"], reverse=True)
 
     # Cross-Encoder 重排
-    global _reranker
-    if _reranker is None:
-        model_dir = snapshot_download("BAAI/bge-reranker-base", ignore_file_pattern=["onnx/*"])
-        _reranker = CrossEncoder(model_dir)
+    reranker = _get_reranker()
+
     pairs = [[query, item["document"]] for item in merged_list]
-    scores = _reranker.predict(pairs)
+    scores = reranker.predict(pairs)
     ranked = sorted(zip(scores, merged_list), key=lambda x: x[0], reverse=True)
     merged_list = [item for _, item in ranked]
     
