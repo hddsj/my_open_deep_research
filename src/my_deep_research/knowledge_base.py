@@ -112,7 +112,29 @@ def split_text(text):
         return []
     chunker = _get_semantic_chunker()
     docs = chunker.create_documents([text])
-    return [doc.page_content for doc in docs]
+
+    # 存储最终结果
+    result = []
+
+    MAX_CHUNK_SIZE = 512
+    # 对已经划分好的chunck进行长度检测，如果超过长度，则进一步划分
+    for chunk in [doc.page_content for doc in docs]:
+        if len(chunk) <= MAX_CHUNK_SIZE:
+            result.append(chunk)
+        else:
+            # 按句号切分，再合并到不超过上限
+            sentences = chunk.split('。')
+            current = ""
+            for s in sentences:
+                if len(current) + len(s) > MAX_CHUNK_SIZE and current:
+                    result.append(current)
+                    current = s
+                else:
+                    current += ('。' if current else '') + s
+            if current:
+                result.append(current)  
+        
+    return result
     
 
 def build_index(documents,folder_path):
