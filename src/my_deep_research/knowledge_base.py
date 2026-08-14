@@ -10,6 +10,8 @@ import re
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 _bm25_index = None
 _bm25_chunks = []
 _bm25_metadatas = []
@@ -133,9 +135,41 @@ def split_text(text):
                     current += ('。' if current else '') + s
             if current:
                 result.append(current)  
-        
+
     return result
     
+def _process_one_book(source, text):
+    """
+    Process a single book and return its chunks.
+    
+    Args:
+        source (str): Source file name
+        text (str): Text content of the book
+        
+    Returns:
+        list: List of dictionaries containing text, source file, and page number
+    """
+    ids = []
+    chunks = []
+    metadatas = []
+    clean_chunks = []
+
+    chunks = split_text(text)
+    # 判断是否为空白页,若是空白页,则不加入collection
+    if not chunks:
+        return ids, clean_chunks, metadatas
+    for i, chunk in enumerate(chunks):
+            # 通过正则表达式提取页码
+            pages = re.findall(r'\[PAGE:(\d+)\]', chunk)
+            page = int(pages[0]) if pages else 0
+            # 去掉页码标记
+            clean_chunk = re.sub(r'\[PAGE:\d+\]', '', chunk)
+            # 收集数据
+            ids.append(f"{source}_{page}_{i}")
+            metadatas.append({"source": source, "page": page})
+            clean_chunks.append(clean_chunk)
+    
+    return ids, clean_chunks, metadatas
 
 def build_index(documents,folder_path):
     """
@@ -177,22 +211,18 @@ def build_index(documents,folder_path):
         # 拼接文本（插入页码标记）
         books[source] += f"[PAGE:{doc['page']}]" + doc["text"]
 
+    _get_semantic_chunker()
     # 遍历每本书
-    for source, text in books.items():   
-        chunks = split_text(text)
-        # 判断是否为空白页,若是空白页,则不加入collection
-        if not chunks:
-            continue
-        for i, chunk in enumerate(chunks):
-            # 通过正则表达式提取页码
-            pages = re.findall(r'\[PAGE:(\d+)\]', chunk)
-            page = int(pages[0]) if pages else 0
-            # 去掉页码标记
-            clean_chunk = re.sub(r'\[PAGE:\d+\]', '', chunk)
-            # 收集数据
-            all_ids.append(f"{source}_{page}_{i}")
-            _bm25_metadatas.append({"source": source, "page": page})
-            _bm25_chunks.append(clean_chunk)
+    with ThreadPoolExecutor() as executor:
+        futures = {executor.submit(_process_one_book, source, text): source
+               for source, text in books.items()}
+        for future in as_completed(futures):
+            ids, clean_chunks, metadatas = future.result()
+            all_ids.extend(ids)
+            _bm25_chunks.extend(clean_chunks)
+            _bm25_metadatas.extend(metadatas)
+
+        
     # 建立chromdb知识库索引
     batch_size = 5000
     for i in range(0, len(_bm25_chunks), batch_size):
