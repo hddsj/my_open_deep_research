@@ -158,10 +158,12 @@ You have access to three main tools:
 Think like a human researcher with limited time. Follow these steps:
 
 1. **Read the question carefully** - What specific information does the user need?
-1.5 **Check local knowledge base first** - If the topic might be covered by internal documents, search the local knowledge base before web search. **Rewrite queries for better retrieval:**
+1.5 **Check local knowledge base first** - If the topic might be covered by internal documents, search the local knowledge base before web search. **Rewrite queries for better retrieval.**
+   - **IMPORTANT: Local knowledge base documents are in Chinese. You MUST write queries in Chinese, even if the research brief is in English.**
    - Bad: "怎么管理容器" → Good: "Docker 容器管理 数据卷 网络配置"
-   - Bad: "how to handle errors" → Good: "try catch exception handling error recovery"
+   - Bad: "how to handle errors" → Good: "异常处理 try catch 错误恢复 重试机制"
    - Bad: "类怎么继承" → Good: "Python 类继承 super 方法重写 多态"
+   - Bad: "Docker container management" → Good: "Docker 容器管理 启动 停止 删除"
 2. **Start with broader searches** - Use broad, comprehensive queries first
 3. **After each search, pause and assess** - Do I have enough to answer? What's still missing?
 4. **Execute narrower searches as you gather information** - Fill in the gaps
@@ -222,16 +224,18 @@ The report should be structured like this:
 </Output Format>
 
 <Citation Rules>
-- Assign each unique URL a single citation number in your text
+- Assign each unique source (URL or local document) a single citation number in your text
 - End with ### Sources that lists each source with corresponding numbers
 - IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
-- For web sources, use: [1] Source Title: URL
-- For local knowledge base sources (marked with [本地知识库] in tool results), use: [1] 《文件名》 第X页
-- **CRITICAL: You MUST preserve ALL local knowledge base sources.** Any result from local_knowledge_search marked with [本地知识库] 《文件名》 第X页 MUST appear in the Sources list. Do NOT omit them.
-- Example format:
-  [1] Source Title: URL
+- There are TWO types of sources you must handle:
+  1. Web sources (URL starts with http/https): cite as [1] Source Title: URL
+  2. Local knowledge base sources (URL starts with 本地知识库://): cite as [1] 《文件名》 第X页 (use the SOURCE title directly)
+- **CRITICAL: You MUST include ALL local knowledge base sources.** When you see a SOURCE with URL starting with "本地知识库://", you MUST add it to the Sources list using the SOURCE title (e.g. 《Docker从入门到实践》 第42页). Do NOT omit them.
+- Example Sources list:
+  [1] Docker Overview: https://docs.docker.com/get-started/
   [2] 《Docker从入门到实践》 第42页
   [3] 《Python编程》 第156页
+  [4] Another Web Source: https://example.com
 </Citation Rules>
 
 Critical Reminder: It is extremely important that any information that is even remotely relevant to the user's research topic is preserved verbatim (e.g. don't rewrite it, don't summarize it, don't paraphrase it).
@@ -239,7 +243,9 @@ Critical Reminder: It is extremely important that any information that is even r
 
 compress_research_simple_human_message = """All above messages are about research conducted by an AI Researcher. Please clean up these findings.
 
-DO NOT summarize the information. I want the raw information returned, just in a cleaner format. Make sure all relevant information is preserved - you can rewrite findings verbatim."""
+DO NOT summarize the information. I want the raw information returned, just in a cleaner format. Make sure all relevant information is preserved - you can rewrite findings verbatim.
+
+IMPORTANT: If any results came from the local_knowledge_search tool (marked with [本地知识库]), you MUST include them in the Sources list using the format: 《文件名》 第X页. Do NOT omit local knowledge base sources."""
 
 
 ##########################
@@ -381,17 +387,19 @@ Make sure the final answer report is in the SAME language as the human messages 
 Format the report in clear markdown with proper structure and include source references where appropriate.
 
 <Citation Rules>
-- Assign each unique URL a single citation number in your text
+- Assign each unique source (URL or local document) a single citation number in your text
 - End with ### Sources that lists each source with corresponding numbers
 - IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
 - Each source should be a separate line item in a list, so that in markdown it is rendered as a list.
-- For web sources, use: [1] Source Title: URL
-- For local knowledge base sources, use: [1] 《文件名》 第X页
-- **CRITICAL: You MUST include local knowledge base sources in the Sources list.** If information came from local_knowledge_search results (identified by source filename and page number), you MUST cite them using the 《文件名》 第X页 format. Do NOT omit local sources.
-- Example format:
-  [1] Source Title: URL
+- There are TWO types of sources you must handle:
+  1. Web sources (URL starts with http/https): cite as [1] Source Title: URL
+  2. Local knowledge base sources (URL starts with 本地知识库://): cite as [1] 《文件名》 第X页 (use the SOURCE title directly)
+- **CRITICAL: You MUST include ALL local knowledge base sources.** When you see a source with 《》and 第X页, you MUST keep it in the final Sources list. Do NOT omit them. Do NOT convert them to URLs.
+- Example Sources list:
+  [1] Docker Overview: https://docs.docker.com/get-started/
   [2] 《Docker从入门到实践》 第42页
   [3] 《Python编程》 第156页
+  [4] Another Web Source: https://example.com
 - Citations are extremely important. Make sure to include these, and pay a lot of attention to getting these right. Users will often use these citations to look into more information.
 </Citation Rules>
 """
