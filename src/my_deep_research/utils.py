@@ -342,15 +342,23 @@ LOCAL_KB_DESCRIPTION = (
 @tool(description=LOCAL_KB_DESCRIPTION)
 async def local_knowledge_search(queries: List[str]) -> str:
     print(f"[local_knowledge_search] 查询: {queries}")
-    formatted_output = "Local knowledge base results:\n\n"
+    formatted_output = "Local knowledge base results: \n\n"
+    source_counter = 0
+
+    seen = set()
     for query in queries:
         results = search(query, 5)
         docs = results["documents"][0]
         metas = results["metadatas"][0]
         for i, (doc, meta) in enumerate(zip(docs, metas)):
-            formatted_output += f"\n--- [本地知识库] 《{meta['source']}》 第{meta['page']}页 ---\n"
-            formatted_output += f"{doc}\n"
-            formatted_output += "-" * 80 + "\n"
+            if doc[:100] in seen:
+                continue
+            seen.add(doc[:100])
+            source_counter += 1
+            formatted_output += f"\n\n--- SOURCE {source_counter}: 《{meta['source']}》 第{meta['page']}页 ---\n"
+            formatted_output += f"URL: 本地知识库://《{meta['source']}》/第{meta['page']}页\n\n"
+            formatted_output += f"SUMMARY:\n{doc}\n\n"
+            formatted_output += "\n\n" + "-" * 80 + "\n"
     return formatted_output
 
 ##########################
