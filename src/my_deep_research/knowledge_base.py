@@ -170,6 +170,20 @@ def _process_one_book(source, text):
             clean_chunks.append(clean_chunk)
     
     return ids, clean_chunks, metadatas
+    
+def _remove_file_data(source):
+    """
+    Remove data from the knowledge base for a specific file.
+    
+    Args:
+        source (str): Source file name
+    """
+    global _knowledge_collection,_bm25_chunks,_bm25_metadatas 
+    _knowledge_collection.delete(where={"source": source})
+    # 从bm25索引中删除
+    pairs = [(c, m) for c, m in zip(_bm25_chunks, _bm25_metadatas) if m["source"] != source]
+    _bm25_chunks = [c for c, m in pairs]
+    _bm25_metadatas = [m for c, m in pairs]
 
 def build_index(documents,folder_path):
     """
@@ -186,8 +200,9 @@ def build_index(documents,folder_path):
     global _bm25_index, _bm25_chunks, _bm25_metadatas
     # 全局变量，用于存储chromadb客户端、集合和embedding函数
     global _knowledge_collection,_chromadb_client,_ef
-    # 获取签名缓存
+    # 签名缓存路径
     cache_path = "./bm25_cache.pkl"
+    # 当前时刻指纹
     fingerprint = get_fingerprint(folder_path)
 
     if os.path.exists(cache_path):
@@ -197,7 +212,56 @@ def build_index(documents,folder_path):
             _bm25_chunks = cache["bm25_chunks"]
             _bm25_metadatas = cache["bm25_metadatas"]
             return
-        
+        else:
+            _bm25_index = cache["bm25_index"]
+            _bm25_chunks = cache["bm25_chunks"]
+            _bm25_metadatas = cache["bm25_metadatas"]
+
+            old_fp = cache["fingerprint"]
+            new_fp = fingerprint
+            old_keys = set(old_fp.keys())
+            new_keys = set(new_fp.keys())
+            added = new_keys - old_keys
+            removed = old_keys - new_keys
+            modified = {f for f in old_keys & new_keys if old_fp[f] != new_fp[f]}
+            
+            # 删除需要移除的数据（removed + modified）
+            for file in removed | modified:
+                _remove_file_data(file)
+            
+            # 新增/更新文件的数据
+            need_process = added | modified
+            # 从 documents 里筛选需要处理的文件，按书名分组
+            books = {}
+            for doc in documents:
+                if doc["source"] in need_process:
+                    source = doc["source"]
+                    if source not in books:
+                        books[source] = ""
+                    books[source] += f"[PAGE:{doc['page']}]" + doc["text"]
+
+            # 处理并加入索引
+            client, collection, ef = _get_knowledge_client_collection()
+            for source, text in books.items():
+                ids, clean_chunks, metadatas = _process_one_book(source, text)
+                _bm25_chunks.extend(clean_chunks)
+                _bm25_metadatas.extend(metadatas)
+                if clean_chunks:
+                    collection.add(documents=clean_chunks, metadatas=metadatas, ids=ids)
+
+            # 重建 BM25 索引
+            tokenized = [list(jieba.cut(chunk)) for chunk in _bm25_chunks]
+            _bm25_index = BM25Okapi(tokenized)
+
+            # 保存新缓存
+            pickle.dump({
+                "fingerprint": fingerprint,
+                "bm25_index": _bm25_index,
+                "bm25_chunks": _bm25_chunks,
+                "bm25_metadatas": _bm25_metadatas,
+            }, open(cache_path, "wb"))
+            return
+
     all_ids = []
     
     client, collection, ef = _get_knowledge_client_collection()        
@@ -254,6 +318,11 @@ def search(query, top_k):
     Returns:
         dict: Search results with documents and metadata
     """
+    global _bm25_index
+    if _bm25_index is None:
+        folder_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "knowledge_base")
+        documents = load_documents(folder_path)
+        build_index(documents, folder_path)
     client, collection, ef = _get_knowledge_client_collection()        
     results = collection.query(
         query_texts=[query],
@@ -295,7 +364,7 @@ def search(query, top_k):
     pairs = [[query, item["document"]] for item in merged_list]
     scores = reranker.predict(pairs)
     ranked = sorted(zip(scores, merged_list), key=lambda x: x[0], reverse=True)
-    merged_list = [item for _, item in ranked]
+    merged_list = [item for _, item in ranked][:top_k]
     
     return {
         "documents": [[item["document"] for item in merged_list]],
