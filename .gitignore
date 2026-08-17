@@ -29,4 +29,9 @@ CLAUDE.md
 knowledge_base/
 chroma_db/
 test_kb.py
+test_incremental.py
+test_newbooks.py
+test_ranking.py
+test_retrieval_v2.py
+test_speed.py
 bm25_cache.pkl
