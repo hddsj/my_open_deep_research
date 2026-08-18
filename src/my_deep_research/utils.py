@@ -20,8 +20,15 @@ from my_deep_research.prompts import summarize_webpage_prompt
 from my_deep_research.state import Summary
 
 from my_deep_research.knowledge_base import search
+import chromadb
 
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
+# chromadb客户端对象
+_chromadb_client = None
+
+# embedding function对象
+_ef = None
 
 ##########################
 # Misc Utils
@@ -469,3 +476,25 @@ def is_token_limit_exceeded(e: Exception, model: str) -> bool:
         "maximum context",
     ]
     return any(keyword in error_str for keyword in keywords)
+
+def get_chromadb_client():
+    """
+    Get a ChromaDB client instance.
+    
+    Returns:
+        ChromaDB client
+    """
+    global _chromadb_client
+    if _chromadb_client is None:
+        _chromadb_client = chromadb.PersistentClient(path="./chroma_db")
+    return _chromadb_client
+
+def get_embedding_function():
+    global _ef
+    from modelscope import snapshot_download
+    from my_deep_research.configuration import Configuration
+    if _ef is None:
+        model_name = Configuration().embedding_model
+        model_dir = snapshot_download(model_name) 
+        _ef = SentenceTransformerEmbeddingFunction(model_name=model_dir)
+    return _ef

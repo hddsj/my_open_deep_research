@@ -34,4 +34,6 @@ test_newbooks.py
 test_ranking.py
 test_retrieval_v2.py
 test_speed.py
+test_memory.py
+test_retrieval.py
 bm25_cache.pkl

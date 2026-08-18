@@ -12,15 +12,14 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
 _bm25_index = None
 _bm25_chunks = []
 _bm25_metadatas = []
 
-ENCODING_MODEL= "BAAI/bge-small-zh-v1.5"
 
 _reranker = None
 
-_model_dir = None
 
 # chromadb客户端对象
 _chromadb_client = None
@@ -44,24 +43,17 @@ def _get_knowledge_client_collection():
     """
     获取知识库客户端、集合和embedding_function对象
     """
+    from my_deep_research.utils import get_chromadb_client, get_embedding_function
     global _knowledge_collection,_chromadb_client,_ef
     if _chromadb_client is None:
-        _chromadb_client = chromadb.PersistentClient(path="./chroma_db")
+        _chromadb_client = get_chromadb_client()
     if _ef is None:
-        _ef = SentenceTransformerEmbeddingFunction(model_name=_get_model_dir())
+        _ef = get_embedding_function()
     if _knowledge_collection is None:
         _knowledge_collection = _chromadb_client.get_or_create_collection("knowledge_base", embedding_function=_ef)
     
     return _chromadb_client,_knowledge_collection, _ef
 
-def _get_model_dir():
-    """
-    获取模型目录
-    """
-    global _model_dir
-    if _model_dir is None:
-        _model_dir = snapshot_download(ENCODING_MODEL)
-    return _model_dir
 
 def load_documents(folder_path):
     """
@@ -264,7 +256,10 @@ def build_index(documents,folder_path):
 
     all_ids = []
     
-    client, collection, ef = _get_knowledge_client_collection()        
+    client, collection, ef = _get_knowledge_client_collection() 
+
+    client.delete_collection("knowledge_base")
+    collection = client.create_collection("knowledge_base", embedding_function=ef)       
 
     books = {}
     # 按书名分组

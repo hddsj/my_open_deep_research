@@ -56,6 +56,8 @@ from my_deep_research.utils import (
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
 
+from my_deep_research.memory import save_memory, retrieve_memory
+
 
 
 # Initialize a configurable model that we will use throughout the agent
@@ -232,7 +234,14 @@ async def researcher(
     }
 
     researcher_prompt = research_system_prompt.format(date=get_today_str())
-
+    # 检索历史研究记忆，如果存在相关记忆则注入 prompt 供 LLM 参考
+    memory_context = retrieve_memory(state["research_topic"], top_k=3)
+    if memory_context:
+        print(f"[researcher] 注入历史研究记忆:\n{memory_context}")
+        researcher_prompt += f"\n\n<Past Research>\n{memory_context}\n</Past Research>"
+    else:
+        print("[researcher] 无相关历史研究记忆")
+        
     research_model = (
         configurable_model.bind_tools(tools)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -364,7 +373,8 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
                 )
             ]
         )
-
+        # 存储压缩后的研究结果到memory（基于Chromadb实现）
+        save_memory(state["research_topic"], str(response.content))
         return {
             "compressed_research": str(response.content),
             "raw_notes": [raw_notes_content],
