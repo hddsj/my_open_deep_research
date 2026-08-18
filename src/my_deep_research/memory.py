@@ -32,11 +32,18 @@ def save_memory(topic, content):
         content (str): The compressed research summary to store.
     """
     _memory_collection = _get_memory_collection()
+    # 去重：检查是否已存在高度相似的记忆
+    if _memory_collection.count() > 0:
+        existing = _memory_collection.query(query_texts=[content], n_results=1)
+        # 判断是否存在高度相似的记忆
+        if existing["distances"][0] and existing["distances"][0][0] < 0.3:
+            # 删除旧记忆，后续 add 会存入更新的版本
+            _memory_collection.delete(ids=existing["ids"][0])
     # 构建元数据并存入一条记忆
     metadatas=[{"topic": topic, "created_at": datetime.now().isoformat()}]
     _memory_collection.add(documents=[content], metadatas=metadatas, ids=[str(uuid.uuid4())])
 
-def retrieve_memory(query, top_k=3):
+def retrieve_memory(query, top_k=3,max_distance=1.0):
     """Retrieve relevant past research memories from ChromaDB via vector similarity search.
     
     Args:
@@ -64,9 +71,13 @@ def retrieve_memory(query, top_k=3):
     # 因为只传了一个 query，所以取 [0] 获取第一个 query 的结果
     docs = results.get("documents", [[]])[0]
     metas = results.get("metadatas", [[]])[0]
+    distances = results.get("distances", [[]])[0]
     lines = []
 
     # 格式化为可注入 prompt 的文本，截取前 200 字避免过长
-    for i, (doc, meta) in enumerate(zip(docs, metas)):
+    for i, (doc, meta,dist) in enumerate(zip(docs, metas,distances)):
+        # 如果相似度大于max_distance，说明相关性低，则跳过
+        if dist > max_distance:
+            continue
         lines.append(f"{i+1}. [{meta['created_at'][:10]}] {meta['topic']}:{doc[:200]}...")
     return "\n".join(lines) if lines else ""

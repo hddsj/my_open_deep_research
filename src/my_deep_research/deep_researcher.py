@@ -1,6 +1,8 @@
 """Main LangGraph implementation for the Deep Research agent."""
 
 import asyncio
+import logging
+
 from typing import Literal
 
 from langchain.chat_models import init_chat_model
@@ -59,7 +61,7 @@ from langgraph.types import interrupt
 from my_deep_research.memory import save_memory, retrieve_memory
 
 
-
+logger = logging.getLogger(__name__)
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
     configurable_fields=("model", "max_tokens", "api_key"),
@@ -237,10 +239,10 @@ async def researcher(
     # 检索历史研究记忆，如果存在相关记忆则注入 prompt 供 LLM 参考
     memory_context = retrieve_memory(state["research_topic"], top_k=3)
     if memory_context:
-        print(f"[researcher] 注入历史研究记忆:\n{memory_context}")
+        logger.info(f"[researcher] 注入历史研究记忆:\n{memory_context}")
         researcher_prompt += f"\n\n<Past Research>\n{memory_context}\n</Past Research>"
     else:
-        print("[researcher] 无相关历史研究记忆")
+        logger.info("[researcher] 无相关历史研究记忆")
         
     research_model = (
         configurable_model.bind_tools(tools)
@@ -498,17 +500,17 @@ async def evaluate_report(state: AgentState, config: RunnableConfig):
         [HumanMessage(content=prompt_content)]
     )
     # 解析结果
-    print(f"[evaluate_report] 轮次: {research_loops}/{configurable.max_research_loops}")
+    logger.info(f"[evaluate_report] 轮次: {research_loops}/{configurable.max_research_loops}")
     if "VERDICT: PASS" in response.content:
-        print("[evaluate_report] ✅ VERDICT: PASS — 报告通过")
+        logger.info("[evaluate_report] ✅ VERDICT: PASS — 报告通过")
         return Command(goto=END)
 
     # VERDICT: NEEDS_MORE，继续研究
     # 只提取 GAPS 部分
     gaps = ""
-    print(f"[evaluate_report] ❌ VERDICT: NEEDS_MORE — 需要补充研究")
+    logger.info(f"[evaluate_report] ❌ VERDICT: NEEDS_MORE — 需要补充研究")
     if "GAPS:" in response.content:
-        print(f"[evaluate_report] GAPS:\n{response.content.split('GAPS:')[1].strip()}")
+        logger.info(f"[evaluate_report] GAPS:\n{response.content.split('GAPS:')[1].strip()}")
         gaps = response.content.split("GAPS:")[1].strip()
     else:
         gaps = response.content
@@ -557,7 +559,7 @@ async def handle_followup(followup_question: str, notes: list, final_report: str
         HumanMessage(content=prompt),
     ])
 
-    print(f"[追问判断] needs_research={result.needs_research}, research_topic={result.research_topic}")
+    logger.info(f"[追问判断] needs_research={result.needs_research}, research_topic={result.research_topic}")
     if result.needs_research:
         yield {"type": "progress", "message": "正在补充搜索..."}
         decision = await researcher_subgraph.ainvoke({

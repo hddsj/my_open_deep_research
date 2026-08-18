@@ -2,6 +2,13 @@
 
 import asyncio
 import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 import os
 from datetime import datetime
 from typing import Annotated, Any, List, Literal, Optional
@@ -29,6 +36,7 @@ _chromadb_client = None
 
 # embedding function对象
 _ef = None
+
 
 ##########################
 # Misc Utils
@@ -348,7 +356,7 @@ LOCAL_KB_DESCRIPTION = (
 )
 @tool(description=LOCAL_KB_DESCRIPTION)
 async def local_knowledge_search(queries: List[str]) -> str:
-    print(f"[local_knowledge_search] 查询: {queries}")
+    logger.info(f"[local_knowledge_search] 查询: {queries}")
     formatted_output = "Local knowledge base results: \n\n"
     source_counter = 0
 
