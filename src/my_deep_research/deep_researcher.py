@@ -236,8 +236,14 @@ async def researcher(
     }
 
     researcher_prompt = research_system_prompt.format(date=get_today_str())
-    # 检索历史研究记忆，如果存在相关记忆则注入 prompt 供 LLM 参考
-    memory_context = retrieve_memory(state["research_topic"], top_k=3)
+   
+    try:
+        # 检索历史研究记忆，如果存在相关记忆则注入 prompt 供 LLM 参考
+        memory_context = retrieve_memory(state["research_topic"], top_k=3)
+    except Exception as e:
+        logger.error(f"[researcher] 检索历史研究记忆失败: {e}")
+        memory_context = ""
+
     if memory_context:
         logger.info(f"[researcher] 注入历史研究记忆:\n{memory_context}")
         researcher_prompt += f"\n\n<Past Research>\n{memory_context}\n</Past Research>"
@@ -376,7 +382,10 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             ]
         )
         # 存储压缩后的研究结果到memory（基于Chromadb实现）
-        save_memory(state["research_topic"], str(response.content))
+        try:
+            save_memory(state["research_topic"], str(response.content))
+        except Exception as e:
+            logger.error(f"[compress_research] 存储压缩后的研究结果到memory失败: {e}")
         return {
             "compressed_research": str(response.content),
             "raw_notes": [raw_notes_content],
