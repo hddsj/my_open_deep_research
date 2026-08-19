@@ -252,6 +252,53 @@ async def researcher(
         },
     )
 
+async def _compress_observation(observation: str, research_topic: str, config: RunnableConfig) -> str:
+    """对搜索工具返回的原始结果进行上下文压缩，只保留与研究主题相关的核心内容。
+    
+    短文本（<200字）直接跳过；LLM调用失败时降级返回原文。
+    
+    Args:
+        observation: 搜索工具返回的原始文本。
+        research_topic: 当前研究主题，用于指导LLM提取相关内容。
+        config: 运行时配置，包含模型参数和API key。
+    
+    Returns:
+        压缩后的文本，或在短文本/失败时返回原文。
+    """
+    # 模型初始化
+    configurable = Configuration.from_runnable_config(config)
+    model = configurable_model.with_config({
+        "model": configurable.compression_model,
+        "max_tokens": configurable.compression_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.compression_model, config),
+    })  
+    
+    # 执行压缩逻辑：
+    #     1.短文本跳过：如果 observation 很短（比如 < 200 字），没必要压缩，直接返回
+    #     2.构造 prompt：告诉 LLM "从以下搜索结果中，只提取跟 {research_topic} 相关的核心内容"
+    #     3.调 LLM 返回压缩结果，加 try-except 降级（失败就返回原文
+    
+    # 短文本跳过
+    if len(observation) < 200:
+        logger.info(f"[compress_observation] 短文本({len(observation)}字)跳过压缩")
+        return observation
+    
+    # 构造 prompt
+    prompt = (
+        f"请从以下搜索结果中，只提取与'{research_topic}'直接相关的核心内容，"
+        "去掉广告、导航、无关段落，保持简洁。\n\n"
+        f"【搜索结果】：\n{observation}"
+    )
+
+    # 调 LLM 返回压缩结果
+    try:
+        response = await model.ainvoke(prompt)
+        logger.info(f"[compress_observation] 压缩完成: {len(observation)}字 → {len(response.content)}字")
+    except Exception as e:
+        logger.warning(f"[compress_observation] LLM 调用失败: {e}, 返回原文")
+        return observation
+    
+    return response.content
 
 async def researcher_tools(
     state: ResearcherState, config: RunnableConfig
@@ -290,6 +337,13 @@ async def researcher_tools(
     ]
     observations = await asyncio.gather(*tool_execution_tasks)
 
+    # 对搜索结果进行上下文压缩
+    observations = [
+        await _compress_observation(obs, state["research_topic"], config)
+        if tc["name"] in ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
+        else obs
+        for obs, tc in zip(observations, tool_calls)
+    ]
     # Create tool messages from execution results
     tool_outputs = [
         ToolMessage(
