@@ -62,7 +62,7 @@ from my_deep_research.memory import save_memory, retrieve_memory
 
 
 logger = logging.getLogger(__name__)
-# Initialize a configurable model that we will use throughout the agent
+# 创建的是一个可配置的模型模板，还没有指定具体用哪个模型
 configurable_model = init_chat_model(
     configurable_fields=("model", "max_tokens", "api_key"),
 )
@@ -94,6 +94,7 @@ async def clarify_with_user(
         "tags": ["langsmith:nostream"],
     }
 
+    # 根据模型模版创建实例
     clarification_model = (
         configurable_model.with_structured_output(ClarifyWithUser)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)

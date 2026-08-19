@@ -1,7 +1,11 @@
-from my_deep_research.utils import get_chromadb_client, get_embedding_function
+from my_deep_research.utils import get_chromadb_client, get_embedding_function, get_api_key_for_model
 import uuid
+import logging
 from datetime import datetime
+from my_deep_research.configuration import Configuration
+from langchain.chat_models import init_chat_model
 
+logger = logging.getLogger(__name__)
 
 # 研究记忆集合对象（模块级缓存）
 _memory_collection = None
@@ -24,6 +28,27 @@ def _get_memory_collection():
                                 get_or_create_collection("research_memory", embedding_function=_ef)
     return _memory_collection
 
+def _merge_memories(old_content, new_content):
+    try:
+        config = Configuration()
+        model = init_chat_model(
+                model=config.compression_model,
+                max_tokens=config.compression_model_max_tokens,
+                api_key=get_api_key_for_model(config.compression_model),
+            )
+        prompt = (
+                "请将以下两段研究摘要合并为一段完整的摘要。"
+                "保留两者的所有关键信息，去除重复内容，保持简洁。\n\n"
+                f"【已有摘要】：\n{old_content}\n\n"
+                f"【新研究】：\n{new_content}"
+            )
+        response = model.invoke(prompt)
+        logger.info(f"[_merge_memories] 合并成功，合并后摘要前100字: {str(response.content)[:100]}...")
+        return response.content
+    except Exception as e:
+        logger.error(f"[_merge_memories] LLM合并失败，降级为新内容: {e}")
+        return new_content
+
 def save_memory(topic, content):
     """Save a research summary to the memory collection in ChromaDB.
     
@@ -37,8 +62,15 @@ def save_memory(topic, content):
         existing = _memory_collection.query(query_texts=[content], n_results=1)
         # 判断是否存在高度相似的记忆
         if existing["distances"][0] and existing["distances"][0][0] < 0.3:
+            logger.info(f"[save_memory] 检测到相似记忆 (distance={existing['distances'][0][0]:.4f})，执行合并")
+            # 获取旧记忆
+            old_content = existing["documents"][0][0]
+            # 合并记忆
+            content = _merge_memories(old_content, content)
             # 删除旧记忆，后续 add 会存入更新的版本
             _memory_collection.delete(ids=existing["ids"][0])
+        else:
+            logger.info(f"[save_memory] 无相似记忆，直接存入新记忆")
     # 构建元数据并存入一条记忆
     metadatas=[{"topic": topic, "created_at": datetime.now().isoformat()}]
     _memory_collection.add(documents=[content], metadatas=metadatas, ids=[str(uuid.uuid4())])
