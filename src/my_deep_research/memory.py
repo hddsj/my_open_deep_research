@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from my_deep_research.configuration import Configuration
 from langchain.chat_models import init_chat_model
-
+from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 # 研究记忆集合对象（模块级缓存）
@@ -59,34 +59,60 @@ def _reflect_on_memories():
     _memory_collection = _get_memory_collection()
     
     if _memory_collection.count() > 0:
-        # {
-        #     "documents": ["摘要1", "摘要2", ...],  ← 注意：不是嵌套列表
-        #     "metadatas": [{"topic": "...", ...}, ...],
-        #     "ids": ["id1", "id2", ...]
-        # }
+       
         try:
-            # 获取全部文档
-            results = _memory_collection.get()
+            # 只取 type=research 的普通记忆，返回格式：
+            # results = {
+            #     "documents": ["Docker bridge用veth...", "K8s通过PV/PVC...", ...],  ← 一维列表
+            #     "metadatas": [
+            #         {"type": "research", "topic": "Docker网络基础", "created_at": "2026-08-19T..."},
+            #         {"type": "research", "topic": "K8s存储", "created_at": "2026-08-19T..."},
+            #         ...
+            #     ],
+            #     "ids": ["uuid1", "uuid2", ...]
+            # }
+            # 注意：get() 返回一维列表，不像 query() 返回嵌套列表
+            results = _memory_collection.get(where={"type": "research"})
+            logger.info(f"[_reflect_on_memories] 取出 {len(results['documents'])} 条普通记忆")
+            # 将results["documents"]和results["metadatas"]按topic分组
+            groups = defaultdict(list)
+            for doc, meta in zip(results["documents"], results["metadatas"]):
+                groups[meta["topic"]].append(doc)
+            # 模型初始化
             config = Configuration()
             model = init_chat_model(
                     model=config.compression_model,
                     max_tokens=config.compression_model_max_tokens,
                     api_key=get_api_key_for_model(config.compression_model),
                 )
-            all_docs = "\n".join(f"- {doc}" for doc in results["documents"])
-            prompt = (
-                    "请对以下研究记录进行元认知反思，提取高层洞察：\n"
-                    "1. 用户关注哪些核心领域和主题？\n"
-                    "2. 研究方向有什么趋势或演变？\n"
-                    "3. 各主题之间有什么关联？\n"
-                    "请输出一段简洁的总结（不超过300字）。\n\n"
-                    f"【研究记录】：\n{all_docs}"
-                )
-            response = model.invoke(prompt)
-            # 构建元数据并存入一条记忆
+            
+            logger.info(f"[_reflect_on_memories] 按topic分为 {len(groups)} 组: {list(groups.keys())}")
+            for topic, docs in groups.items():
+                docs_text = "\n".join(f"- {d}" for d in docs)
+                prompt = f"请总结以下关于'{topic}'的研究记录，保留关键信息，不超过150字：\n\n{docs_text}"
+                response = model.invoke(prompt)
+                # 存入集合，type=topic_summary
+                _memory_collection.add(documents=[response.content], metadatas=[{"type": "topic_summary","topic": topic, "created_at": datetime.now().isoformat()}], ids=[str(uuid.uuid4())])
+                logger.info(f"[_reflect_on_memories] 主题摘要已生成: [{topic}] {str(response.content)[:80]}...")
+            
+            topic_summaries = _memory_collection.get(where={"type": "topic_summary"})
+            
+            all_summaries = "\n".join(f"- {doc}" for doc in topic_summaries["documents"])
+            
+            # 第二步：基于主题摘要生成领域洞察
+            reflection_prompt = (
+                "请基于以下各主题的研究摘要，进行跨主题的元认知反思：\n"
+                "1. 用户关注哪些核心领域？各领域的研究深度如何？\n"
+                "2. 研究方向有什么趋势或演变？\n"
+                "3. 各主题之间有什么关联或互补？\n"
+                "请输出一段简洁的领域洞察（不超过300字）。\n\n"
+                f"【各主题摘要】：\n{all_summaries}"
+            )
+            reflection_response = model.invoke(reflection_prompt)
             metadatas=[{"type": "reflection","topic": "反思总结", "created_at": datetime.now().isoformat()}]
-            _memory_collection.add(documents=[response.content], metadatas=metadatas, ids=[str(uuid.uuid4())])
-            return response.content
+            _memory_collection.add(documents=[reflection_response.content], metadatas=metadatas, ids=[str(uuid.uuid4())])
+            logger.info(f"[_reflect_on_memories] 领域洞察已生成: {str(reflection_response.content)[:100]}...")
+            return reflection_response.content
         except Exception as e:
             logger.error(f"[_reflect_on_memories] LLM反思总结失败: {e}")
             return None
@@ -114,7 +140,7 @@ def save_memory(topic, content):
         else:
             logger.info(f"[save_memory] 无相似记忆，直接存入新记忆")
     # 构建元数据并存入一条记忆
-    metadatas=[{"topic": topic, "created_at": datetime.now().isoformat()}]
+    metadatas=[{"type": "research", "topic": topic, "created_at": datetime.now().isoformat()}]
     _memory_collection.add(documents=[content], metadatas=metadatas, ids=[str(uuid.uuid4())])
     # 每5条记忆进行一次反思总结
     if _memory_collection.count() % 5 == 0:
