@@ -178,12 +178,29 @@ def retrieve_memory(query, top_k=3,max_distance=1.0):
     docs = results.get("documents", [[]])[0]
     metas = results.get("metadatas", [[]])[0]
     distances = results.get("distances", [[]])[0]
-    lines = []
+    ids = results.get("ids", [[]])[0]
+    scored_results = []
+    half_life = 30  # 半衰期：30天
 
-    # 格式化为可注入 prompt 的文本，截取前 200 字避免过长
-    for i, (doc, meta,dist) in enumerate(zip(docs, metas,distances)):
+    for i, (doc, meta, dist, doc_id) in enumerate(zip(docs, metas, distances, ids)):
         # 如果相似度大于max_distance，说明相关性低，则跳过
         if dist > max_distance:
             continue
-        lines.append(f"{i+1}. [{meta['created_at'][:10]}] {meta['topic']}:{doc[:200]}...")
+        # 计算时间衰减：天数越大，decay 越小
+        days_ago = (datetime.now() - datetime.fromisoformat(meta["created_at"])).days
+        decay = 1 / (1 + days_ago / half_life)
+        # 最终分数 = 相关性(1-distance) × 时间衰减
+        final_score = (1 - dist) * decay
+        logger.info(f"[retrieve_memory] [{meta['topic']}] distance={dist:.4f}, days_ago={days_ago}, decay={decay:.4f}, final_score={final_score:.4f}")
+        scored_results.append((final_score, doc, meta, doc_id))
+
+    # 按最终分数降序排列
+    scored_results.sort(key=lambda x: x[0], reverse=True)
+
+    lines = []
+    logger.info(f"[retrieve_memory] 命中 {len(scored_results)} 条记忆，按时间衰减重排序")
+    for rank, (score, doc, meta, doc_id) in enumerate(scored_results):
+        _memory_collection.update(ids=[doc_id], metadatas=[{**meta, "last_accessed": datetime.now().isoformat()}])
+        logger.info(f"[retrieve_memory] 刷新访问时间: [{meta['topic']}] id={doc_id[:8]}...")
+        lines.append(f"{rank+1}. [{meta['created_at'][:10]}] {meta['topic']}:{doc[:200]}...")
     return "\n".join(lines) if lines else ""
