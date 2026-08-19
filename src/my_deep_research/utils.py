@@ -69,6 +69,8 @@ def get_api_key_for_model(model_name: str, config: RunnableConfig = None):
         return os.getenv("ANTHROPIC_API_KEY")
     elif model_name.startswith("google"):
         return os.getenv("GOOGLE_API_KEY")
+    elif model_name.startswith("deepseek"):
+        return os.getenv("DEEPSEEK_API_KEY")
     return None
 
 

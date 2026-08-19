@@ -49,6 +49,48 @@ def _merge_memories(old_content, new_content):
         logger.error(f"[_merge_memories] LLM合并失败，降级为新内容: {e}")
         return new_content
 
+def _reflect_on_memories():
+    """Reflect on existing memories to check for duplicates or updates.
+    
+    Returns:
+        dict: The query results from ChromaDB.
+    """
+    # 重新获取集合实例
+    _memory_collection = _get_memory_collection()
+    
+    if _memory_collection.count() > 0:
+        # {
+        #     "documents": ["摘要1", "摘要2", ...],  ← 注意：不是嵌套列表
+        #     "metadatas": [{"topic": "...", ...}, ...],
+        #     "ids": ["id1", "id2", ...]
+        # }
+        try:
+            # 获取全部文档
+            results = _memory_collection.get()
+            config = Configuration()
+            model = init_chat_model(
+                    model=config.compression_model,
+                    max_tokens=config.compression_model_max_tokens,
+                    api_key=get_api_key_for_model(config.compression_model),
+                )
+            all_docs = "\n".join(f"- {doc}" for doc in results["documents"])
+            prompt = (
+                    "请对以下研究记录进行元认知反思，提取高层洞察：\n"
+                    "1. 用户关注哪些核心领域和主题？\n"
+                    "2. 研究方向有什么趋势或演变？\n"
+                    "3. 各主题之间有什么关联？\n"
+                    "请输出一段简洁的总结（不超过300字）。\n\n"
+                    f"【研究记录】：\n{all_docs}"
+                )
+            response = model.invoke(prompt)
+            # 构建元数据并存入一条记忆
+            metadatas=[{"type": "reflection","topic": "反思总结", "created_at": datetime.now().isoformat()}]
+            _memory_collection.add(documents=[response.content], metadatas=metadatas, ids=[str(uuid.uuid4())])
+            return response.content
+        except Exception as e:
+            logger.error(f"[_reflect_on_memories] LLM反思总结失败: {e}")
+            return None
+
 def save_memory(topic, content):
     """Save a research summary to the memory collection in ChromaDB.
     
@@ -61,7 +103,7 @@ def save_memory(topic, content):
     if _memory_collection.count() > 0:
         existing = _memory_collection.query(query_texts=[content], n_results=1)
         # 判断是否存在高度相似的记忆
-        if existing["distances"][0] and existing["distances"][0][0] < 0.3:
+        if existing["distances"][0] and existing["distances"][0][0] < 0.1:
             logger.info(f"[save_memory] 检测到相似记忆 (distance={existing['distances'][0][0]:.4f})，执行合并")
             # 获取旧记忆
             old_content = existing["documents"][0][0]
@@ -74,6 +116,12 @@ def save_memory(topic, content):
     # 构建元数据并存入一条记忆
     metadatas=[{"topic": topic, "created_at": datetime.now().isoformat()}]
     _memory_collection.add(documents=[content], metadatas=metadatas, ids=[str(uuid.uuid4())])
+    # 每5条记忆进行一次反思总结
+    if _memory_collection.count() % 5 == 0:
+        try:
+            _reflect_on_memories()
+        except Exception as e:
+            logger.error(f"[_reflect_on_memories] 反思总结失败: {e}")
 
 def retrieve_memory(query, top_k=3,max_distance=1.0):
     """Retrieve relevant past research memories from ChromaDB via vector similarity search.
