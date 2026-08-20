@@ -121,6 +121,7 @@ class SupervisorOutputState(TypedDict):
 class ResearcherState(TypedDict):
     """State for individual researchers conducting research."""
     
+    query_complexity: str
     researcher_messages: Annotated[list[MessageLikeRepresentation], operator.add]
     tool_call_iterations: int
     research_topic: str

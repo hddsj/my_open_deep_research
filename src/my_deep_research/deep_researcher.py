@@ -252,6 +252,11 @@ async def researcher(
         update={
             "researcher_messages": [response],
             "tool_call_iterations": state.get("tool_call_iterations", 0) + 1,
+            "query_complexity": (
+                await _classify_query(state["research_topic"], config)
+                if state.get("tool_call_iterations", 0) == 0
+                else state.get("query_complexity", "medium")
+            ),
         },
     )
 
@@ -367,6 +372,31 @@ async def _rewrite_query(research_topic: str, config: RunnableConfig) -> str:
         logger.warning(f"[rewrite_query] 改写失败: {e}, 使用原始查询")
         return research_topic
 
+async def _classify_query(research_topic: str, config: RunnableConfig) -> str:
+    # 模型初始化
+    configurable = Configuration.from_runnable_config(config)
+    model = configurable_model.with_config({
+        "model": configurable.compression_model,
+        "max_tokens": configurable.compression_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.compression_model, config),
+    })
+    # 定义prompt
+    prompt = (
+        f"请判断研究主题'{research_topic}'的复杂度，只输出以下三个词之一：\n"
+        "- simple：有明确答案的事实性问题，一次搜索就能解决（如'Docker默认网段是什么'）\n"
+        "- medium：需要理解原理或概念，几次搜索能覆盖（如'Docker网络原理'）\n"
+        "- complex：涉及对比、多维分析、跨领域，需要分解子问题（如'对比K8s三种CNI方案的性能差异'）\n"
+        "只输出 simple/medium/complex，不要解释。\n"
+    )
+    try:
+        response = await model.ainvoke(prompt)
+        classification = response.content.strip().strip('"').strip("'")
+        logger.info(f"[classify_query] 分类查询: '{research_topic}' → '{classification}'")
+        return classification
+    except Exception as e:
+        logger.warning(f"[classify_query] 分类失败: {e}, 默认返回'medium'")
+        return "medium"
+
 async def researcher_tools(
     state: ResearcherState, config: RunnableConfig
 ) -> Command[Literal["researcher", "compress_research"]]:
@@ -382,6 +412,10 @@ async def researcher_tools(
     Returns:
         Command to either continue research loop or proceed to compression
     """
+
+    complex_classify = state["query_complexity"]
+    princlple = {"simple": 2, "medium": 3, "complex": 4}
+    logger.info(f"[researcher_tools] 查询复杂度: {complex_classify}, 最大搜索轮次: {princlple.get(complex_classify, 3)}")
     # Step 1: Extract current state and check early exit
     configurable = Configuration.from_runnable_config(config)
     researcher_messages = state.get("researcher_messages", [])
@@ -452,7 +486,7 @@ async def researcher_tools(
 
     # Step 3: Check exit conditions
     exceeded_iterations = (
-        state.get("tool_call_iterations", 0) >= configurable.max_react_tool_calls
+        state.get("tool_call_iterations", 0) >= princlple.get(complex_classify, 3)
     )
 
     if exceeded_iterations:
