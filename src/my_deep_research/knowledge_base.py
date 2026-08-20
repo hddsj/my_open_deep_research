@@ -137,7 +137,25 @@ def split_text(text):
                 result.append(current)  
 
     return result
-    
+
+def _split_parent_chunks(text, max_size=2000):
+
+    sentences = text.split('。')
+    # 存储最终结果
+    parent = []
+    current = ""
+    # 对已经划分好的chunck进行长度检测，如果超过长度，则进一步划分
+    for chunk in sentences:
+        if len(current) + len(chunk) <= max_size:
+            current += ('。' if current else '') + chunk
+        else:
+            parent.append(current)
+            current = chunk
+    if current:
+        parent.append(current)  
+    # 返回 parent 块列表
+    return parent
+
 def _process_one_book(source, text):
     """
     Process a single book and return its chunks.
@@ -154,20 +172,21 @@ def _process_one_book(source, text):
     metadatas = []
     clean_chunks = []
 
-    chunks = split_text(text)
-    # 判断是否为空白页,若是空白页,则不加入collection
-    if not chunks:
-        return ids, clean_chunks, metadatas
-    for i, chunk in enumerate(chunks):
-            # 通过正则表达式提取页码
-            pages = re.findall(r'\[PAGE:(\d+)\]', chunk)
-            page = int(pages[0]) if pages else 0
-            # 去掉页码标记
-            clean_chunk = re.sub(r'\[PAGE:\d+\]', '', chunk)
-            # 收集数据
-            ids.append(f"{source}_{page}_{i}")
-            metadatas.append({"source": source, "page": page})
-            clean_chunks.append(clean_chunk)
+    parents = _split_parent_chunks(text)
+    for j, parent_text in enumerate(parents):
+        parent_id = f"{source}_parent_{j}"
+        # 存 parent
+        ids.append(parent_id)
+        metadatas.append({"source": source, "type": "parent"})
+        parent_text = re.sub(r'\[PAGE:\d+\]', '', parent_text)
+        clean_chunks.append(parent_text)
+        # 切 child 并存
+        children = split_text(parent_text)
+        for k, child_text in enumerate(children):
+            child_id = f"{parent_id}_child_{k}"
+            ids.append(child_id)
+            metadatas.append({"source": source, "type": "child", "parent_id": parent_id})
+            clean_chunks.append(child_text)
     
     return ids, clean_chunks, metadatas
     
@@ -326,7 +345,8 @@ def search(query, top_k):
     client, collection, ef = _get_knowledge_client_collection()        
     results = collection.query(
         query_texts=[query],
-        n_results=top_k
+        n_results=top_k,
+        where={"type": "child"}
     )
 
     tokenized_query = list(jieba.cut(query))
@@ -350,6 +370,8 @@ def search(query, top_k):
     for rank, idx in enumerate(top_indices):
         doc = _bm25_chunks[idx]
         meta = _bm25_metadatas[idx]
+        if meta.get("type") == "parent":  # 跳过 parent
+            continue
         key = doc[:100]
         if key not in merged:
             merged[key] = {"document": doc, "metadata": meta, "score": 0}
@@ -357,6 +379,15 @@ def search(query, top_k):
 
     # 按 RRF 分数降序排列
     merged_list = sorted(merged.values(), key=lambda x: x["score"], reverse=True)
+
+    # 对child块反查parent块
+    for item in merged_list:
+        parent_id = item["metadata"].get("parent_id")
+        if parent_id:
+            # 获取parent_id对应的document
+            parent_result = collection.get(ids=[parent_id])
+            if parent_result["documents"]:
+                item["document"] = parent_result["documents"][0]
 
     # Cross-Encoder 重排
     reranker = _get_reranker()
