@@ -20,7 +20,6 @@ class SearchAPI(Enum):
 
 class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
-
     max_research_loops: int = Field(
         default=2,
         description="Maximum number of research loops to run"
@@ -111,6 +110,11 @@ class Configuration(BaseModel):
     final_report_model_max_tokens: int = Field(
         default=16384,
         description="Max tokens for the final report model"
+    )
+    # Embedding Configuration
+    embedding_model: str = Field(
+        default="BAAI/bge-small-zh-v1.5",
+        description="Model to use for embedding tasks"
     )
 
     @classmethod
