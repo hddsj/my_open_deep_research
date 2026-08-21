@@ -2,8 +2,9 @@
 
 import asyncio
 import logging
-
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
@@ -267,9 +268,150 @@ async def researcher(
         update={
             "researcher_messages": [response],
             "tool_call_iterations": state.get("tool_call_iterations", 0) + 1,
+            "query_complexity": (
+                await _classify_query(state["research_topic"], config)
+                if state.get("tool_call_iterations", 0) == 0
+                else state.get("query_complexity", "medium")
+            ),
         },
     )
 
+async def _compress_observation(observation: str, research_topic: str, config: RunnableConfig) -> str:
+    """对搜索工具返回的原始结果进行上下文压缩，只保留与研究主题相关的核心内容。
+    
+    短文本（<200字）直接跳过；LLM调用失败时降级返回原文。
+    
+    Args:
+        observation: 搜索工具返回的原始文本。
+        research_topic: 当前研究主题，用于指导LLM提取相关内容。
+        config: 运行时配置，包含模型参数和API key。
+    
+    Returns:
+        压缩后的文本，或在短文本/失败时返回原文。
+    """
+    # 模型初始化
+    configurable = Configuration.from_runnable_config(config)
+    model = configurable_model.with_config({
+        "model": configurable.compression_model,
+        "max_tokens": configurable.compression_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.compression_model, config),
+    })  
+    
+    # 执行压缩逻辑：
+    #     1.短文本跳过：如果 observation 很短（比如 < 200 字），没必要压缩，直接返回
+    #     2.构造 prompt：告诉 LLM "从以下搜索结果中，只提取跟 {research_topic} 相关的核心内容"
+    #     3.调 LLM 返回压缩结果，加 try-except 降级（失败就返回原文
+    
+    # 短文本跳过
+    if len(observation) < 200:
+        logger.info(f"[compress_observation] 短文本({len(observation)}字)跳过压缩")
+        return observation
+    
+    # 构造 prompt
+    prompt = (
+        f"请从以下搜索结果中，只提取与'{research_topic}'直接相关的核心内容，"
+        "去掉广告、导航、无关段落，保持简洁。\n\n"
+        f"【搜索结果】：\n{observation}"
+    )
+
+    # 调 LLM 返回压缩结果
+    try:
+        response = await model.ainvoke(prompt)
+        logger.info(f"[compress_observation] 压缩完成: {len(observation)}字 → {len(response.content)}字")
+    except Exception as e:
+        logger.warning(f"[compress_observation] LLM 调用失败: {e}, 返回原文")
+        return observation
+    
+    return response.content
+
+async def _evaluate_observations(observations: list, tool_calls: list, research_topic: str, config: RunnableConfig) -> bool:
+    # 模型初始化
+    configurable = Configuration.from_runnable_config(config)
+    model = configurable_model.with_config({
+        "model": configurable.compression_model,
+        "max_tokens": configurable.compression_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.compression_model, config),
+    })
+
+    # 将多个搜索结果拼成一个完整的文本
+    search_tools = ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
+    numbered = []
+    for i, obs in enumerate(observations):
+        if tool_calls[i]["name"] in search_tools:
+            numbered.append(f"{i+1}. {obs}")
+    results_text = "\n".join(numbered)
+
+    # 拼接prompt
+    prompt = (
+        f"请评估以下搜索结果与研究主题'{research_topic}'的相关性。\n"
+        "对每条结果回答：相关 或 不相关。\n\n"
+        f"{results_text}"
+    )
+
+    # 执行LLM调用
+    response = await model.ainvoke(prompt)
+
+    # 统计不相关的数量
+    content = response.content
+    irrelevant_count = content.count("不相关")
+    total = len(numbered)
+    if total == 0:
+        return False
+    
+    # 计算不相关的比例
+    irrelevant_ratio = irrelevant_count / total
+    logger.info(f"[evaluate_observations] 不相关占比: {irrelevant_count}/{total} = {irrelevant_ratio:.1%}")
+    return irrelevant_ratio > 0.5
+
+async def _rewrite_query(research_topic: str, config: RunnableConfig) -> str:
+    # 模型初始化
+    configurable = Configuration.from_runnable_config(config)
+    model = configurable_model.with_config({
+        "model": configurable.compression_model,
+        "max_tokens": configurable.compression_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.compression_model, config),
+    })
+    # 定义prompt
+    prompt = (
+        f"原始研究主题是'{research_topic}'，但搜索结果大部分不相关。\n"
+        "请改写一个更精准的搜索查询，要求：\n"
+        "1. 使用更具体的关键词\n"
+        "2. 避免过于宽泛的表述\n"
+        "3. 只输出改写后的查询，不要解释\n"
+    )
+    try:
+        response = await model.ainvoke(prompt)
+        rewritten = response.content.strip().strip('"').strip("'")
+        logger.info(f"[rewrite_query] 改写查询: '{research_topic}' → '{rewritten}'")
+        return rewritten
+    except Exception as e:
+        logger.warning(f"[rewrite_query] 改写失败: {e}, 使用原始查询")
+        return research_topic
+
+async def _classify_query(research_topic: str, config: RunnableConfig) -> str:
+    # 模型初始化
+    configurable = Configuration.from_runnable_config(config)
+    model = configurable_model.with_config({
+        "model": configurable.compression_model,
+        "max_tokens": configurable.compression_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.compression_model, config),
+    })
+    # 定义prompt
+    prompt = (
+        f"请判断研究主题'{research_topic}'的复杂度，只输出以下三个词之一：\n"
+        "- simple：有明确答案的事实性问题，一次搜索就能解决（如'Docker默认网段是什么'）\n"
+        "- medium：需要理解原理或概念，几次搜索能覆盖（如'Docker网络原理'）\n"
+        "- complex：涉及对比、多维分析、跨领域，需要分解子问题（如'对比K8s三种CNI方案的性能差异'）\n"
+        "只输出 simple/medium/complex，不要解释。\n"
+    )
+    try:
+        response = await model.ainvoke(prompt)
+        classification = response.content.strip().strip('"').strip("'")
+        logger.info(f"[classify_query] 分类查询: '{research_topic}' → '{classification}'")
+        return classification
+    except Exception as e:
+        logger.warning(f"[classify_query] 分类失败: {e}, 默认返回'medium'")
+        return "medium"
 
 async def researcher_tools(
     state: ResearcherState, config: RunnableConfig
@@ -286,6 +428,10 @@ async def researcher_tools(
     Returns:
         Command to either continue research loop or proceed to compression
     """
+
+    complex_classify = state["query_complexity"]
+    princlple = {"simple": 2, "medium": 3, "complex": 4}
+    logger.info(f"[researcher_tools] 查询复杂度: {complex_classify}, 最大搜索轮次: {princlple.get(complex_classify, 3)}")
     # Step 1: Extract current state and check early exit
     configurable = Configuration.from_runnable_config(config)
     researcher_messages = state.get("researcher_messages", [])
@@ -302,12 +448,48 @@ async def researcher_tools(
     }
 
     tool_calls = most_recent_message.tool_calls
+    # tool_calls 长这样：
+    # [
+    #   {"name": "tavily_search", "args": {"query": "Docker网络原理"}, "id": "call_123"},
+    #   {"name": "think_tool", "args": {"thought": "..."}, "id": "call_456"},
+    # ]
     tool_execution_tasks = [
         execute_tool_safely(tools_by_name[tc["name"]], tc["args"], config)
         for tc in tool_calls
     ]
     observations = await asyncio.gather(*tool_execution_tasks)
+    # 假设 tool_calls 有 3 个调用：搜索、think、搜索
+    # observations = (
+    #     "Docker bridge 网络使用 veth pair... 首页|关于我们|广告...",  # [0] tavily_search 返回的网页内容
+    #     "我需要从网络和存储两个维度分析...",                          # [1] think_tool 返回的思考
+    #     "VXLAN 隧道协议实现跨主机通信... 推荐阅读...",               # [2] duckduckgo_search 返回的网页内容
+    # )
 
+    # 对搜索结果进行上下文压缩
+    observations = [
+        await _compress_observation(obs, state["research_topic"], config)
+        if tc["name"] in ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
+        else obs
+        for obs, tc in zip(observations, tool_calls)
+    ]
+
+    is_qualify = await _evaluate_observations(observations, tool_calls, state["research_topic"], config)
+    logger.info(f"[researcher_tools] 检索质量评估: {'合格' if is_qualify else '不合格，触发改写重搜'}")
+
+    if not is_qualify:
+        rewritten_query = await _rewrite_query(state["research_topic"], config)
+        search_tools = ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
+        observations = list(observations)  # tuple 转 list 才能赋值
+        for i, tc in enumerate(tool_calls):
+            if tc["name"] in search_tools:
+                # 把原来的 {"query": "Docker网络原理"} 换成 {"query": "改写后的查询"}
+                new_args = {**tc["args"], "query": rewritten_query}
+                # 重新执行搜索
+                logger.info(f"[researcher_tools] 重新搜索: tool={tc['name']}, query='{rewritten_query}'")
+                new_result = await execute_tool_safely(tools_by_name[tc["name"]], new_args, config)
+                # 替换旧结果
+                observations[i] = new_result
+        logger.info(f"[researcher_tools] 改写重搜完成，已替换搜索结果")
     # Create tool messages from execution results
     tool_outputs = [
         ToolMessage(
@@ -320,7 +502,7 @@ async def researcher_tools(
 
     # Step 3: Check exit conditions
     exceeded_iterations = (
-        state.get("tool_call_iterations", 0) >= configurable.max_react_tool_calls
+        state.get("tool_call_iterations", 0) >= princlple.get(complex_classify, 3)
     )
 
     if exceeded_iterations:
