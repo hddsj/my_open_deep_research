@@ -167,17 +167,21 @@ def _process_one_book(source, text):
     parents = _split_parent_chunks(text)
     for j, parent_text in enumerate(parents):
         parent_id = f"{source}_parent_{j}"
+        # 提取页码：取 parent 文本中第一个 [PAGE:xx] 标记作为该块的页码
+        pages = re.findall(r'\[PAGE:(\d+)\]', parent_text)
+        page = int(pages[0]) if pages else 0
+        # 清理页码标记
+        parent_text = re.sub(r'\[PAGE:\d+\]', '', parent_text)
         # 存 parent
         ids.append(parent_id)
-        metadatas.append({"source": source, "type": "parent"})
-        parent_text = re.sub(r'\[PAGE:\d+\]', '', parent_text)
+        metadatas.append({"source": source, "type": "parent", "page": page})
         clean_chunks.append(parent_text)
         # 切 child 并存
         children = split_text(parent_text)
         for k, child_text in enumerate(children):
             child_id = f"{parent_id}_child_{k}"
             ids.append(child_id)
-            metadatas.append({"source": source, "type": "child", "parent_id": parent_id})
+            metadatas.append({"source": source, "type": "child", "parent_id": parent_id, "page": page})
             clean_chunks.append(child_text)
     
     return ids, clean_chunks, metadatas

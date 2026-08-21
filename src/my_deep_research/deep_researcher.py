@@ -473,10 +473,10 @@ async def researcher_tools(
         for obs, tc in zip(observations, tool_calls)
     ]
 
-    is_qualify = await _evaluate_observations(observations, tool_calls, state["research_topic"], config)
-    logger.info(f"[researcher_tools] 检索质量评估: {'合格' if is_qualify else '不合格，触发改写重搜'}")
+    is_low_quality = await _evaluate_observations(observations, tool_calls, state["research_topic"], config)
+    logger.info(f"[researcher_tools] 检索质量评估: {'不合格，触发改写重搜' if is_low_quality else '合格'}")
 
-    if not is_qualify:
+    if is_low_quality:
         rewritten_query = await _rewrite_query(state["research_topic"], config)
         search_tools = ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
         observations = list(observations)  # tuple 转 list 才能赋值
