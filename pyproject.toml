@@ -16,6 +16,15 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "httpx>=0.24.0",
     "ddgs>=7.0.0",
+    "chromadb>=1.5.9",
+    "pymupdf>=1.28.2",
+    "rank-bm25>=0.2.2",
+    "sentence-transformers>=5.7.0",
+    "jieba>=0.42.1",
+    "modelscope>=1.39.1",
+    "langchain-experimental>=0.4.2",
+    "langchain-text-splitters>=1.1.2",
+    "langchain-huggingface>=1.2.2",
 ]
 
 [build-system]
@@ -24,6 +33,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["my_deep_research"]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
 
 [tool.setuptools.package-dir]
 "my_deep_research" = "src/my_deep_research"

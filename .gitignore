@@ -24,3 +24,9 @@ sessions.json
 # OwnYourCode (local mentoring tool)
 ownyourcode/
 CLAUDE.md
+
+# Knowledge base data
+knowledge_base/
+chroma_db/
+bm25_cache.pkl
+test_*
