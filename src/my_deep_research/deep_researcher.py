@@ -238,7 +238,21 @@ async def researcher(
     }
 
     researcher_prompt = research_system_prompt.format(date=get_today_str())
-   
+
+    # 首轮分类，后续轮复用
+    if state.get("tool_call_iterations", 0) == 0:
+        complexity, routing = await _classify_query(state["research_topic"], config)
+    else:
+        complexity = state.get("query_complexity", "medium")
+        routing = state.get("source_routing", "both")
+
+    # 根据 routing 过滤工具
+    local_tools = {"local_knowledge_search"}
+    web_tools = {"tavily_search", "duckduckgo_search_tool"}
+    if routing == "local":
+        tools = [t for t in tools if t.name not in web_tools]
+    elif routing == "web":
+        tools = [t for t in tools if t.name not in local_tools]
     try:
         # 检索历史研究记忆，如果存在相关记忆则注入 prompt 供 LLM 参考
         memory_context = retrieve_memory(state["research_topic"], top_k=3)
@@ -268,11 +282,8 @@ async def researcher(
         update={
             "researcher_messages": [response],
             "tool_call_iterations": state.get("tool_call_iterations", 0) + 1,
-            "query_complexity": (
-                await _classify_query(state["research_topic"], config)
-                if state.get("tool_call_iterations", 0) == 0
-                else state.get("query_complexity", "medium")
-            ),
+            "query_complexity": complexity,
+            "source_routing": routing,
         },
     )
 
@@ -397,21 +408,30 @@ async def _classify_query(research_topic: str, config: RunnableConfig) -> str:
         "api_key": get_api_key_for_model(configurable.compression_model, config),
     })
     # 定义prompt
-    prompt = (
-        f"请判断研究主题'{research_topic}'的复杂度，只输出以下三个词之一：\n"
-        "- simple：有明确答案的事实性问题，一次搜索就能解决（如'Docker默认网段是什么'）\n"
-        "- medium：需要理解原理或概念，几次搜索能覆盖（如'Docker网络原理'）\n"
-        "- complex：涉及对比、多维分析、跨领域，需要分解子问题（如'对比K8s三种CNI方案的性能差异'）\n"
-        "只输出 simple/medium/complex，不要解释。\n"
+    prompt = prompt = (
+        f"请判断研究主题'{research_topic}'的两个属性，用 | 分隔输出：\n\n"
+        "1. 复杂度（三选一）：\n"
+        "- simple：有明确答案的事实性问题（如'Docker默认网段是什么'）\n"
+        "- medium：需要理解原理或概念（如'Docker网络原理'）\n"
+        "- complex：涉及对比、多维分析、跨领域（如'对比K8s三种CNI方案的性能差异'）\n\n"
+        "2. 数据源（三选一）：\n"
+        f"- local：主题属于本地知识库覆盖范围（{configurable.knowledge_base_description}）\n"
+        "- web：需要最新信息、或主题不在本地知识库范围内\n"
+        "- both：既需要本地基础知识，又需要网络补充最新实践\n\n"
+        "输出格式：complex | both\n"
+        "只输出一行，不要解释。"
     )
     try:
         response = await model.ainvoke(prompt)
-        classification = response.content.strip().strip('"').strip("'")
-        logger.info(f"[classify_query] 分类查询: '{research_topic}' → '{classification}'")
-        return classification
+        # 将输出结果（"complex | both"）拆分为tuple
+        parts = response.content.strip().split("|")
+        complexity = parts[0].strip()
+        routing = parts[1].strip() if len(parts) > 1 else "both"
+        logger.info(f"[classify_query] 分类查询: '{research_topic}' → '{complexity} | {routing}'")
+        return complexity, routing
     except Exception as e:
-        logger.warning(f"[classify_query] 分类失败: {e}, 默认返回'medium'")
-        return "medium"
+        logger.warning(f"[classify_query] 分类失败: {e}, 默认返回'medium | both'")
+        return "medium", "both"
 
 async def researcher_tools(
     state: ResearcherState, config: RunnableConfig
