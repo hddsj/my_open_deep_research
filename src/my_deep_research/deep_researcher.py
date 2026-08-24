@@ -60,7 +60,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
 
 from my_deep_research.memory import save_memory, retrieve_memory
-
+from my_deep_research.bandit import bandit_select_routing, bandit_update_reward, _get_bandit
 
 logger = logging.getLogger(__name__)
 # 创建的是一个可配置的模型模板，还没有指定具体用哪个模型
@@ -426,7 +426,16 @@ async def _classify_query(research_topic: str, config: RunnableConfig) -> str:
         # 将输出结果（"complex | both"）拆分为tuple
         parts = response.content.strip().split("|")
         complexity = parts[0].strip()
-        routing = parts[1].strip() if len(parts) > 1 else "both"
+
+        # LinUCB 路由决策
+        bandit = _get_bandit()  
+        if bandit.total_updates >= 10:
+            # 数据够了，用 LinUCB
+            routing = bandit_select_routing(research_topic, complexity)
+            logger.info(f"[classify_query] LinUCB 路由: {routing}")
+        else:
+            # 冷启动，继续用 LLM 路由
+            routing = parts[1].strip() if len(parts) > 1 else "both"
         logger.info(f"[classify_query] 分类查询: '{research_topic}' → '{complexity} | {routing}'")
         return complexity, routing
     except Exception as e:
@@ -728,6 +737,13 @@ async def evaluate_report(state: AgentState, config: RunnableConfig):
     logger.info(f"[evaluate_report] 轮次: {research_loops}/{configurable.max_research_loops}")
     if "VERDICT: PASS" in response.content:
         logger.info("[evaluate_report] ✅ VERDICT: PASS — 报告通过")
+        # 回填 LinUCB 奖励
+        bandit_update_reward(
+            state.get("research_brief", ""),
+            state.get("query_complexity", "medium"),
+            state.get("source_routing", "both"),
+            0.9,
+        )
         return Command(goto=END)
 
     # VERDICT: NEEDS_MORE，继续研究
@@ -739,6 +755,12 @@ async def evaluate_report(state: AgentState, config: RunnableConfig):
         gaps = response.content.split("GAPS:")[1].strip()
     else:
         gaps = response.content
+    bandit_update_reward(
+        state.get("research_brief", ""),
+        state.get("query_complexity", "medium"),
+        state.get("source_routing", "both"),
+        0.3,
+    )
     # 把 gaps 作为消息加入，让 write_research_brief 重新生成研究计划
     return Command(
         goto="write_research_brief",

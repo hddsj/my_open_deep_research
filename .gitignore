@@ -30,3 +30,7 @@ knowledge_base/
 chroma_db/
 bm25_cache.pkl
 test_*
+
+# RL
+research_trajectories.json
+bandit_model.json

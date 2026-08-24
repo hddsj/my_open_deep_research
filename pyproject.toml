@@ -25,6 +25,7 @@ dependencies = [
     "langchain-experimental>=0.4.2",
     "langchain-text-splitters>=1.1.2",
     "langchain-huggingface>=1.2.2",
+    "numpy>=1.24.0",
 ]
 
 [build-system]
