@@ -477,6 +477,7 @@ async def researcher_tools(
     logger.info(f"[researcher_tools] 检索质量评估: {'不合格，触发改写重搜' if is_low_quality else '合格'}")
 
     if is_low_quality:
+        logger.info(f"[researcher_tools] 检索质量不合格，触发查询改写重搜")
         rewritten_query = await _rewrite_query(state["research_topic"], config)
         search_tools = ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
         observations = list(observations)  # tuple 转 list 才能赋值
@@ -508,13 +509,19 @@ async def researcher_tools(
     if exceeded_iterations:
         return Command(
             goto="compress_research",
-            update={"researcher_messages": tool_outputs},
+            update={"researcher_messages": tool_outputs,
+             "total_tool_calls": state.get("total_tool_calls", 0) + len(tool_calls),
+             "rewrite_count": state.get("rewrite_count", 0) + (1 if is_low_quality else 0),
+             "forced_stop": exceeded_iterations},
         )
 
     # Continue research loop
     return Command(
         goto="researcher",
-        update={"researcher_messages": tool_outputs},
+        update={"researcher_messages": tool_outputs,
+        "total_tool_calls": state.get("total_tool_calls", 0) + len(tool_calls),
+        "rewrite_count": state.get("rewrite_count", 0) + (1 if is_low_quality else 0),
+        "forced_stop": exceeded_iterations},
     )
 
 
@@ -531,6 +538,12 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
     Returns:
         Dictionary containing compressed research summary and raw notes
     """
+    logger.info(
+        f"[trajectory] 搜索轮次: {state.get('tool_call_iterations', 0)}, "
+        f"工具调用: {state.get('total_tool_calls', 0)}, "
+        f"改写次数: {state.get('rewrite_count', 0)}, "
+        f"强制停止: {state.get('forced_stop', False)}"
+    )
     # Step 1: Configure the compression model
     configurable = Configuration.from_runnable_config(config)
     synthesizer_model = configurable_model.with_config(

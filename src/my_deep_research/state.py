@@ -121,16 +121,39 @@ class SupervisorOutputState(TypedDict):
 class ResearcherState(TypedDict):
     """State for individual researchers conducting research."""
     
+    # 查询复杂度（simple/medium/complex）
     query_complexity: str
+    # 消息列表
     researcher_messages: Annotated[list[MessageLikeRepresentation], operator.add]
+    # 搜索轮次
     tool_call_iterations: int
+    # 研究主题
     research_topic: str
+    # 压缩后的研究结果
     compressed_research: str
+    # 原始笔记
     raw_notes: Annotated[list[str], override_reducer]
+    # 工具调用总次数。每轮可能调多个工具（搜索+think），累加起来
+    total_tool_calls:int
+    # 查询改写次数。每次 is_low_quality == True 就 +1
+    rewrite_count:int
+    # 是否被强制停止。超出迭代上限时设为 True
+    forced_stop:bool
+
+
 
 
 class ResearcherOutputState(BaseModel):
     """Output state from individual researchers."""
-    
+    # 压缩后的研究结果
     compressed_research: str
+    # 原始笔记
     raw_notes: Annotated[list[str], override_reducer] = []
+    # 工具调用总次数。每轮可能调多个工具（搜索+think），累加起来
+    total_tool_calls: int = 0
+    # 查询改写次数。每次 is_low_quality == True 就 +1
+    rewrite_count: int = 0
+    # 是否被强制停止。超出迭代上限时设为 True
+    forced_stop: bool = False
+    # 搜索轮次
+    tool_call_iterations: int = 0
