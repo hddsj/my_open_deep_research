@@ -84,6 +84,9 @@ def load_documents(folder_path):
 # 全局语义分块器，避免重复加载 embedding 模型
 _semantic_chunker = None
 
+def _get_model_dir():
+    return snapshot_download("BAAI/bge-small-zh-v1.5")
+
 def _get_semantic_chunker():
     global _semantic_chunker
     if _semantic_chunker is None:
