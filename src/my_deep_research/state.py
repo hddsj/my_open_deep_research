@@ -139,6 +139,8 @@ class ResearcherState(TypedDict):
     rewrite_count:int
     # 是否被强制停止。超出迭代上限时设为 True
     forced_stop:bool
+    # 知识来源：web/local/both
+    source_routing: str
 
 
 
@@ -157,3 +159,5 @@ class ResearcherOutputState(BaseModel):
     forced_stop: bool = False
     # 搜索轮次
     tool_call_iterations: int = 0
+    # 知识来源：web/local/both
+    source_routing: str = "both"

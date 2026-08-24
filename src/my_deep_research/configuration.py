@@ -117,6 +117,11 @@ class Configuration(BaseModel):
         description="Model to use for embedding tasks"
     )
 
+    knowledge_base_description: str = Field(
+        default="技术书籍：Docker容器化技术、Python编程语言、C++编程、C#编程",
+        description="Description of the knowledge base"
+    )
+
     @classmethod
     def from_runnable_config(
         cls, config: Optional[RunnableConfig] = None
