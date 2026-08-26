@@ -1,34 +1,43 @@
 version: "3.8"
 
+# ============================================
+# 使用方式：
+#   CPU：docker compose up --build
+#   GPU：docker compose --profile gpu up --build
+# ============================================
+
+# 共享配置（避免重复）
+x-common: &common
+  ports:
+    - "8000:8000"
+  env_file:
+    - .env
+  volumes:
+    - ./knowledge_base:/app/knowledge_base
+    - ./chroma_db:/app/chroma_db
+  restart: unless-stopped
+
 services:
-  # 只有一个服务：deep-research
+  # ---- CPU 版本（默认）----
   deep-research:
-    # 用当前目录的 Dockerfile 构建镜像
-    build: .
-    # 容器名称（docker ps 时看到的名字）
-    container_name: my-deep-research
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: my-deep-research-cpu
 
-    # 端口映射：宿主机8000 → 容器8000
-    # 启动后浏览器访问 http://localhost:8000
-    ports:
-      - "8000:8000"
-
-    # 环境变量：从 .env 文件读取 API Key
-    # 这样 API Key 不会打包进镜像，更安全
-    env_file:
-      - .env
-
-    # 数据卷：把容器里的数据映射到宿主机
-    # 这样容器重启后数据不会丢失
-    volumes:
-      # 知识库 PDF 文件（宿主机 → 容器）
-      - ./knowledge_base:/app/knowledge_base
-      # ChromaDB 向量数据（容器 → 宿主机持久化）
-      - ./chroma_db:/app/chroma_db
-      # BM25 缓存
-      - ./bm25_cache.pkl:/app/bm25_cache.pkl
-      # 记忆图谱
-      - ./memory_graph.json:/app/memory_graph.json
-
-    # 容器崩溃时自动重启
-    restart: unless-stopped
+  # ---- GPU 版本 ----
+  deep-research-gpu:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: my-deep-research-gpu
+    profiles: ["gpu"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
