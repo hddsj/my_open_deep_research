@@ -62,29 +62,24 @@ web/
 
 ## 快速开始
 
-### 环境要求
+### 方式一：Docker 部署（推荐，换电脑也能一键启动）
 
-- Python >= 3.11
-- [uv](https://docs.astral.sh/uv/)（推荐）或 pip
+只需安装 [Docker](https://docs.docker.com/get-docker/)，不需要装 Python 和任何依赖。
 
-### 安装
+#### 1. 克隆项目
 
 ```bash
-# 克隆项目
 git clone <repo-url>
 cd my_deep_research_2
-
-# 安装依赖
-uv sync
 ```
 
-### 配置
-
-复制 `.env.example` 为 `.env`，填入 API Key：
+#### 2. 配置环境变量
 
 ```bash
 cp .env.example .env
 ```
+
+编辑 `.env`，填入 API Key：
 
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
@@ -92,17 +87,75 @@ TAVILY_API_KEY=your_tavily_api_key        # 可选，默认用 DuckDuckGo
 LANGSMITH_API_KEY=your_langsmith_api_key  # 可选，用于追踪调试
 ```
 
-### 运行
+#### 3. 放入知识库文件（可选）
 
-#### Web 界面
+将 PDF 文件放入 `knowledge_base/` 目录。
+
+#### 4. 构建并启动
 
 ```bash
-python web/server.py
+# 构建镜像并启动容器（第一次约 5-10 分钟）
+docker-compose up --build
+
+# 或后台运行
+docker-compose up --build -d
 ```
 
-#### LangGraph Studio
+#### 5. 使用
 
-项目包含 `langgraph.json` 配置，可直接在 LangGraph Studio 中打开。
+浏览器打开 http://localhost:8000 即可使用。
+
+#### 常用命令
+
+```bash
+# 查看运行状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+
+# 重新构建（代码改动后）
+docker-compose up --build
+```
+
+> **说明：** 知识库数据（ChromaDB、BM25 缓存、记忆图谱）通过数据卷映射到宿主机，容器重启不会丢失。
+
+---
+
+### 方式二：本地开发
+
+#### 环境要求
+
+- Python >= 3.11
+- [uv](https://docs.astral.sh/uv/)（推荐）或 pip
+
+#### 安装
+
+```bash
+git clone <repo-url>
+cd my_deep_research_2
+uv sync
+```
+
+#### 配置
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，填入 API Key（同上）。
+
+#### 运行
+
+```bash
+# Web 界面
+uvicorn web.server:app --host 0.0.0.0 --port 8000
+
+# 或用 LangGraph Studio 直接打开项目（已含 langgraph.json 配置）
+```
 
 ### 本地知识库
 

@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.claude/
+.idea/
+.vscode/
+
+# LangGraph
+.langgraph_api/
+
+# Data (runtime generated)
+chroma_db/
+bm25_cache.pkl
+bandit_model.json
+research_trajectories.json
+memory_graph.json
+web/sessions.json
+
+# Secrets
+.env
+
+# Local tools
+ownyourcode/
+CLAUDE.md
+
+# Tests
+test_*
+
+# Docs
+*.md
+!README.md
+
+# Lock file (too large)
+uv.lock
