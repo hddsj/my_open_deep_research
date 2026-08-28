@@ -29,8 +29,13 @@ CLAUDE.md
 knowledge_base/
 chroma_db/
 bm25_cache.pkl
-test_*
+
+# Test files (only in root)
+/test_*
 
 # RL
 research_trajectories.json
 bandit_model.json
+
+
+memory_graph.json
