@@ -479,8 +479,8 @@ async def researcher_tools(
     tool_calls = most_recent_message.tool_calls
     # tool_calls 长这样：
     # [
-    #   {"name": "tavily_search", "args": {"query": "Docker网络原理"}, "id": "call_123"},
-    #   {"name": "think_tool", "args": {"thought": "..."}, "id": "call_456"},
+    #   {"name": "tavily_search", "args": {"queries": ["Docker网络原理"]}, "id": "call_123"},
+    #   {"name": "think_tool", "args": {"reflection": "..."}, "id": "call_456"},
     # ]
     tool_execution_tasks = [
         execute_tool_safely(tools_by_name[tc["name"]], tc["args"], config)
@@ -512,8 +512,8 @@ async def researcher_tools(
         observations = list(observations)  # tuple 转 list 才能赋值
         for i, tc in enumerate(tool_calls):
             if tc["name"] in search_tools:
-                # 把原来的 {"query": "Docker网络原理"} 换成 {"query": "改写后的查询"}
-                new_args = {**tc["args"], "query": rewritten_query}
+                # 覆盖 queries 字段：{"queries": ["Docker网络原理"]} → {"queries": ["改写后的查询"]}
+                new_args = {**tc["args"], "queries": [rewritten_query]}
                 # 重新执行搜索
                 logger.info(f"[researcher_tools] 重新搜索: tool={tc['name']}, query='{rewritten_query}'")
                 new_result = await execute_tool_safely(tools_by_name[tc["name"]], new_args, config)
