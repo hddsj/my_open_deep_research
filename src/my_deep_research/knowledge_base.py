@@ -6,6 +6,7 @@ from sentence_transformers import CrossEncoder
 from modelscope import snapshot_download
 import jieba
 import pickle
+import logging
 import re
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -28,6 +29,7 @@ _ef = None
 # knowledge_collection对象
 _knowledge_collection = None
 
+logger = logging.getLogger(__name__)
 
 def _get_reranker():
     """
@@ -427,4 +429,30 @@ def get_fingerprint(folder_path):
             documents[file] = mtime
     
     return documents
-            
+
+LOCAL_KB_DESCRIPTION = (
+    "Search the local knowledge base for relevant information. "
+    "Use this to find information from internal documents and books."
+)
+
+
+async def search_knowledge_base(queries: list[str]) -> str:
+    logger.info(f"[search_knowledge_base] 查询: {queries}")
+    formatted_output = "Local knowledge base results: \n\n"
+    source_counter = 0
+
+    seen = set()
+    for query in queries:
+        results = search(query, 5)
+        docs = results["documents"][0]
+        metas = results["metadatas"][0]
+        for doc, meta in zip(docs, metas):
+            if doc[:100] in seen:
+                continue
+            seen.add(doc[:100])
+            source_counter += 1
+            formatted_output += f"\n\n--- SOURCE {source_counter}: 《{meta['source']}》 第{meta['page']}页 ---\n"
+            formatted_output += f"URL: 本地知识库://《{meta['source']}》/第{meta['page']}页\n\n"
+            formatted_output += f"SUMMARY:\n{doc}\n\n"
+            formatted_output += "\n\n" + "-" * 80 + "\n"
+    return formatted_output

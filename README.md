@@ -18,6 +18,7 @@
 - **语义分块** — 跨页合并 + chunk 大小控制
 - **Parent-Child Chunking** — child 精确匹配，返回 parent 完整上下文
 - **增量索引** — 多书并行，支持增量更新
+- **MCP 服务化** — 知识库检索可作为标准 MCP 服务暴露，供任意 MCP 客户端调用；Agent 自身支持 `direct` / `mcp` 两种接入模式切换
 
 ### 记忆系统
 
@@ -51,6 +52,7 @@ src/my_deep_research/
 ├── prompts.py           # 所有 Prompt 模板
 ├── utils.py             # 工具函数（搜索、网页抓取、token 计算）
 ├── knowledge_base.py    # 本地知识库（PDF 解析、ChromaDB、BM25）
+├── mcp_server.py        # MCP 服务端（将知识库检索暴露为 MCP 工具）
 ├── memory.py            # 记忆系统（图谱存储、检索、反思）
 ├── evaluation.py        # 评估函数（检索质量、报告质量）
 └── bandit.py            # LinUCB 自适应路由
@@ -163,6 +165,32 @@ uvicorn web.server:app --host 0.0.0.0 --port 8000
 
 当前支持的知识库主题：Docker 容器化技术、Python 编程、C++ 编程、C# 编程。
 
+### MCP 知识库服务
+
+知识库检索可以作为标准 MCP 服务对外暴露，供任意 MCP 客户端调用。
+
+启动服务（Streamable HTTP，默认监听 `http://127.0.0.1:8000/mcp`）：
+
+```bash
+python -m my_deep_research.mcp_server
+```
+
+用 [MCP Inspector](https://github.com/modelcontextprotocol/inspector) 验证：
+
+```bash
+npx -y @modelcontextprotocol/inspector
+```
+
+在 Inspector 中添加服务器，Transport 选 **Streamable HTTP**，URL 填 `http://127.0.0.1:8000/mcp`，
+连接后即可在 Tools 面板看到并调用 `local_knowledge_search`。
+
+让 Agent 自身改走 MCP 模式，把配置项 `kb_mode` 设为 `mcp` 即可。
+两种模式共享同一份检索实现，工具名、描述与参数 schema 完全一致
+（由 `tests/test_kb_mode_parity.py` 断言保证）。
+
+> MCP 服务未启动时，`kb_mode=mcp` 会直接报错并提示启动方式，
+> 不会静默退回 `direct` —— 避免"以为在用 MCP，实际不是"。
+
 ## 配置项
 
 | 配置项 | 默认值 | 说明 |
@@ -174,6 +202,8 @@ uvicorn web.server:app --host 0.0.0.0 --port 8000
 | `max_search_results` | `5` | 每次搜索返回结果数 |
 | `max_researcher_iterations` | `5` | 每个 Researcher 最大迭代次数 |
 | `embedding_model` | `BAAI/bge-small-zh-v1.5` | 向量嵌入模型 |
+| `kb_mode` | `direct` | 知识库接入模式（direct 进程内 / mcp 走 MCP 服务） |
+| `mcp_kb_url` | `http://127.0.0.1:8000/mcp` | MCP 知识库服务地址 |
 
 所有配置支持通过环境变量覆盖（大写形式，如 `RESEARCH_MODEL`）。
 
@@ -187,6 +217,7 @@ uvicorn web.server:app --host 0.0.0.0 --port 8000
 - **知识图谱**: NetworkX
 - **自适应路由**: LinUCB Contextual Bandit (NumPy)
 - **Web 搜索**: DuckDuckGo / Tavily
+- **工具协议**: MCP (Model Context Protocol) — 服务端 FastMCP，客户端 langchain-mcp-adapters
 
 ## License
 
