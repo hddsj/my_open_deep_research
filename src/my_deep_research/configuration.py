@@ -17,6 +17,10 @@ class SearchAPI(Enum):
     ANTHROPIC = "anthropic"
     NONE = "none"
 
+class KBMode(Enum):
+    """Enumeration of knowledge base access modes."""
+    DIRECT = "direct"
+    MCP = "mcp"
 
 class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
@@ -122,6 +126,16 @@ class Configuration(BaseModel):
         description="Description of the knowledge base"
     )
 
+    kb_mode: KBMode = Field(
+        default=KBMode.DIRECT,
+        description="How to access the knowledge base: in-process or via MCP server"
+    )
+
+    mcp_kb_url: str = Field(
+        default="http://127.0.0.1:8000/mcp",
+        description="URL of the knowledge base MCP server"
+    )
+
     @classmethod
     def from_runnable_config(
         cls, config: Optional[RunnableConfig] = None
@@ -144,3 +158,6 @@ class Configuration(BaseModel):
                 values[field_name] = configurable[field_name]
 
         return cls(**values)
+
+
+

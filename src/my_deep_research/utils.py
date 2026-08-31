@@ -22,7 +22,7 @@ from tavily import AsyncTavilyClient
 import httpx
 from ddgs import DDGS
 
-from my_deep_research.configuration import Configuration, SearchAPI
+from my_deep_research.configuration import Configuration, SearchAPI, KBMode
 from my_deep_research.prompts import summarize_webpage_prompt
 from my_deep_research.state import Summary
 
@@ -30,7 +30,7 @@ from my_deep_research.knowledge_base import search_knowledge_base, LOCAL_KB_DESC
 import chromadb
 
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-
+from langchain_mcp_adapters.client import MultiServerMCPClient
 # chromadb客户端对象
 _chromadb_client = None
 
@@ -415,6 +415,31 @@ async def get_search_tool(search_api: SearchAPI):
         return []
     return []
 
+async def get_knowledge_base_tools(config: RunnableConfig):
+    """Get knowledge base tools based on configuration.
+    
+    Returns:
+        List of knowledge base tools
+    """
+    configurable = Configuration.from_runnable_config(config)
+    kb_mode = KBMode(get_config_value(configurable.kb_mode))
+    if kb_mode == KBMode.DIRECT:
+        return [local_knowledge_search]
+    elif kb_mode == KBMode.MCP:
+        mcp_kb_url = configurable.mcp_kb_url
+        client = MultiServerMCPClient({
+            "knowledge-base": {"transport": "http", "url": mcp_kb_url}
+        })
+        try:
+            tools = await client.get_tools()  # → list[BaseTool]
+            return tools
+        except Exception as e:
+            raise RuntimeError(
+                f"MCP knowledge base at {mcp_kb_url} is unreachable. "
+                f"Start it with: python -m my_deep_research.mcp_server "
+                f"or set kb_mode=direct to use the in-process implementation."
+            ) from e
+    return []
 
 async def get_all_tools(config: RunnableConfig):
     """Assemble complete toolkit including search and reflection tools.
@@ -431,7 +456,8 @@ async def get_all_tools(config: RunnableConfig):
     search_api = SearchAPI(get_config_value(configurable.search_api))
     search_tools = await get_search_tool(search_api)
     tools.extend(search_tools)
-    tools.append(local_knowledge_search)
+    knowledge_search_tools = await get_knowledge_base_tools(config)
+    tools.extend(knowledge_search_tools)
     return tools
 
 
