@@ -231,6 +231,17 @@ def build_index(documents,folder_path):
             _bm25_index = cache["bm25_index"]
             _bm25_chunks = cache["bm25_chunks"]
             _bm25_metadatas = cache["bm25_metadatas"]
+
+            # 校验：BM25 缓存和 ChromaDB 必须同步
+            _, collection, _ = _get_knowledge_client_collection()
+            chroma_count = collection.count()
+            bm25_count = len(_bm25_chunks)
+            if chroma_count != bm25_count:
+                raise RuntimeError(
+                    f"BM25 缓存与 ChromaDB 不同步: ChromaDB={chroma_count}, BM25={bm25_count}。\n"
+                    f"向量检索将静默返回空结果，混合检索会退化为纯 BM25。\n"
+                    f"请删除 bm25_cache.pkl 后重新运行以重建两套索引（约 30 分钟）。"
+                )
             return
         else:
             _bm25_index = cache["bm25_index"]
