@@ -1,1 +1,1 @@
-"""My Deep Research - 从零复现的深度研究Agent。"""
+"""My Deep Research - 深度研究 Agent，基于 LangChain open_deep_research 扩展。"""
