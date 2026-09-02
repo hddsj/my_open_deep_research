@@ -415,6 +415,10 @@ async def get_search_tool(search_api: SearchAPI):
         return []
     return []
 
+class MCPUnreachableError(RuntimeError):
+    """MCP 知识库服务不可达。继承 RuntimeError 以兼容既有调用方。"""
+
+
 async def get_knowledge_base_tools(config: RunnableConfig):
     """Get knowledge base tools based on configuration.
     
@@ -434,7 +438,7 @@ async def get_knowledge_base_tools(config: RunnableConfig):
             tools = await client.get_tools()  # → list[BaseTool]
             return tools
         except Exception as e:
-            raise RuntimeError(
+            raise MCPUnreachableError(
                 f"MCP knowledge base at {mcp_kb_url} is unreachable. "
                 f"Start it with: python -m my_deep_research.mcp_server "
                 f"or set kb_mode=direct to use the in-process implementation."
