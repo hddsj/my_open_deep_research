@@ -26,8 +26,6 @@ _reranker = None
 _chromadb_client = None
 # embedding_function对象
 _ef = None
-# knowledge_collection对象
-_knowledge_collection = None
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +44,15 @@ def _get_knowledge_client_collection():
     获取知识库客户端、集合和embedding_function对象
     """
     from my_deep_research.utils import get_chromadb_client, get_embedding_function
-    global _knowledge_collection,_chromadb_client,_ef
+    global _chromadb_client,_ef
     if _chromadb_client is None:
         _chromadb_client = get_chromadb_client()
     if _ef is None:
         _ef = get_embedding_function()
-    if _knowledge_collection is None:
-        _knowledge_collection = _chromadb_client.get_or_create_collection("knowledge_base", embedding_function=_ef)
-    
-    return _chromadb_client,_knowledge_collection, _ef
+    # collection 不缓存：get_or_create 只要 0.34ms，而缓存它会在 delete_collection 之后变成悬挂引用
+    collection = _chromadb_client.get_or_create_collection("knowledge_base", embedding_function=_ef)
+
+    return _chromadb_client, collection, _ef
 
 
 def load_documents(folder_path):
@@ -198,8 +196,9 @@ def _remove_file_data(source):
     Args:
         source (str): Source file name
     """
-    global _knowledge_collection,_bm25_chunks,_bm25_metadatas 
-    _knowledge_collection.delete(where={"source": source})
+    global _bm25_chunks,_bm25_metadatas
+    _, collection, _ = _get_knowledge_client_collection()
+    collection.delete(where={"source": source})
     # 从bm25索引中删除
     pairs = [(c, m) for c, m in zip(_bm25_chunks, _bm25_metadatas) if m["source"] != source]
     _bm25_chunks = [c for c, m in pairs]
@@ -218,8 +217,8 @@ def build_index(documents,folder_path):
     """
     # 全局变量,用于存储BM25索引
     global _bm25_index, _bm25_chunks, _bm25_metadatas
-    # 全局变量，用于存储chromadb客户端、集合和embedding函数
-    global _knowledge_collection,_chromadb_client,_ef
+    # 全局变量，用于存储chromadb客户端和embedding函数
+    global _chromadb_client,_ef
     # 签名缓存路径
     cache_path = "./bm25_cache.pkl"
     # 当前时刻指纹
