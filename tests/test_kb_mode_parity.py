@@ -9,7 +9,9 @@ direct（进程内）与 mcp（MCP server）两种知识库模式，对大模型
 
 import asyncio
 
-from my_deep_research.utils import get_all_tools
+import pytest
+
+from my_deep_research.utils import MCPUnreachableError, get_all_tools
 
 START_SERVER_HINT = "python -m my_deep_research.mcp_server"
 
@@ -35,15 +37,9 @@ async def kb_tool(mode):
 
 
 async def main():
+    """执行一致性检查。MCP 服务未启动时抛 MCPUnreachableError，由调用方决定如何处理。"""
     direct = await kb_tool("direct")
-
-    try:
-        mcp = await kb_tool("mcp")
-    except RuntimeError as e:
-        print("SKIPPED: MCP server 未运行，跨模式一致性检查未执行")
-        print(f"         启动后重跑: {START_SERVER_HINT}")
-        print(f"         原因: {e}")
-        return
+    mcp = await kb_tool("mcp")
 
     assert mcp.name == direct.name, (
         f"工具名不一致: direct={direct.name!r} mcp={mcp.name!r}"
@@ -63,5 +59,18 @@ async def main():
     print(f"ok: 两种模式的知识库工具一致 (name={direct.name})")
 
 
+def test_kb_mode_parity():
+    """pytest 入口。异步逻辑用 asyncio.run 包一层，避免为单个测试引入异步插件。"""
+    try:
+        asyncio.run(main())
+    except MCPUnreachableError as e:
+        pytest.skip(f"MCP server 未运行，跨模式一致性检查未执行。启动后重跑: {START_SERVER_HINT}（{e}）")
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except MCPUnreachableError as e:
+        print("SKIPPED: MCP server 未运行，跨模式一致性检查未执行")
+        print(f"         启动后重跑: {START_SERVER_HINT}")
+        print(f"         原因: {e}")

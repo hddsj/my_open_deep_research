@@ -1,7 +1,7 @@
 [project]
 name = "my_deep_research"
 version = "0.0.1"
-description = "从零复现的深度研究Agent"
+description = "深度研究 Agent，基于 LangChain open_deep_research 扩展"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
@@ -42,6 +42,11 @@ packages = ["my_deep_research"]
 [[tool.uv.index]]
 url = "https://pypi.org/simple/"
 default = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
 
 [tool.setuptools.package-dir]
 "my_deep_research" = "src/my_deep_research"

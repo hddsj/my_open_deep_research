@@ -1,6 +1,21 @@
 # My Deep Research Agent
 
-从零实现的深度研究 Agent，基于 LangGraph 构建。输入一个研究问题，自动执行多轮检索、分析、压缩，最终输出结构化研究报告。
+深度研究 Agent，基于 LangGraph 构建。输入一个研究问题，自动执行多轮检索、分析、压缩，最终输出结构化研究报告。
+
+## 出处与分工
+
+本项目以 LangChain 的 [open_deep_research](https://github.com/langchain-ai/open_deep_research)（MIT License）为起点。
+
+**沿用上游的部分**：Multi-Agent 编排骨架 —— `supervisor` / `researcher` / `compress_research` / `final_report_generation` 等节点，`ConductResearch` / `ResearchComplete` / `think_tool` 工具契约，以及对应的 prompt。
+
+**本项目自研的部分**：
+
+| 模块 | 内容 |
+|------|------|
+| **本地知识库混合检索** | PDF 解析、语义分块、Parent-Child 分块、ChromaDB + BM25 双路召回、RRF 融合、Cross-Encoder 重排、增量索引 |
+| **LinUCB 自适应路由** | 手写 Contextual Bandit（NumPy），按查询特征在 local / web / both 之间在线学习路由策略 |
+| **MCP 双模式** | 知识库检索可作为标准 MCP 服务暴露；Agent 支持 `direct` / `mcp` 切换，且拒绝静默降级 |
+| **研究记忆** | 跨研究的记忆存储、LLM 合并、分层摘要、时间衰减排序（探索性实现） |
 
 ## 核心特性
 
@@ -22,11 +37,7 @@
 
 ### 记忆系统
 
-- **Graph-Based Memory** — NetworkX 知识图谱，跨主题关联检索
-- **分层摘要记忆** — 具体记忆 → 主题摘要 → 领域洞察
-- **记忆冲突合并** — LLM 自动合并旧记忆和新记忆
-- **记忆反思** — 元认知反思，提取领域洞察
-- **记忆过期机制** — 时间衰减排序
+- **研究记忆** — ChromaDB 向量存储与检索；相似记忆经 LLM 合并；按 topic 字段分组后由 LLM 生成主题摘要；检索时按「相关性 × 时间衰减」重排（探索性实现，未做量化验证）
 
 ### 自适应路由（LinUCB）
 
@@ -53,7 +64,7 @@ src/my_deep_research/
 ├── utils.py             # 工具函数（搜索、网页抓取、token 计算）
 ├── knowledge_base.py    # 本地知识库（PDF 解析、ChromaDB、BM25）
 ├── mcp_server.py        # MCP 服务端（将知识库检索暴露为 MCP 工具）
-├── memory.py            # 记忆系统（图谱存储、检索、反思）
+├── memory.py            # 记忆系统（ChromaDB存储、检索、反思）
 ├── evaluation.py        # 评估函数（检索质量、报告质量）
 └── bandit.py            # LinUCB 自适应路由
 
@@ -123,7 +134,7 @@ docker-compose down
 docker-compose up --build
 ```
 
-> **说明：** 知识库数据（ChromaDB、BM25 缓存、记忆图谱）通过数据卷映射到宿主机，容器重启不会丢失。
+> **说明：** 知识库数据（ChromaDB、BM25 缓存）通过数据卷映射到宿主机，容器重启不会丢失。
 
 ---
 
@@ -186,7 +197,7 @@ npx -y @modelcontextprotocol/inspector
 
 让 Agent 自身改走 MCP 模式，把配置项 `kb_mode` 设为 `mcp` 即可。
 两种模式共享同一份检索实现，工具名、描述与参数 schema 完全一致
-（由 `tests/test_kb_mode_parity.py` 断言保证）。
+（`tests/test_kb_mode_parity.py` 对此有断言；该检查需手动运行且依赖 MCP 服务在线，尚未纳入 CI）。
 
 > MCP 服务未启动时，`kb_mode=mcp` 会直接报错并提示启动方式，
 > 不会静默退回 `direct` —— 避免"以为在用 MCP，实际不是"。
@@ -214,7 +225,6 @@ npx -y @modelcontextprotocol/inspector
 - **向量数据库**: ChromaDB
 - **关键词检索**: BM25
 - **嵌入模型**: BGE-small-zh-v1.5
-- **知识图谱**: NetworkX
 - **自适应路由**: LinUCB Contextual Bandit (NumPy)
 - **Web 搜索**: DuckDuckGo / Tavily
 - **工具协议**: MCP (Model Context Protocol) — 服务端 FastMCP，客户端 langchain-mcp-adapters
