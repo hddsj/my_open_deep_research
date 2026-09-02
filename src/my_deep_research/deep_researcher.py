@@ -68,6 +68,9 @@ configurable_model = init_chat_model(
     configurable_fields=("model", "max_tokens", "api_key"),
 )
 
+# 需要做上下文压缩、以及在改写重搜时替换 queries 的工具
+SEARCH_TOOL_NAMES = ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
+
 
 async def clarify_with_user(
     state: AgentState, config: RunnableConfig
@@ -399,6 +402,38 @@ async def _rewrite_query(research_topic: str, config: RunnableConfig) -> str:
         logger.warning(f"[rewrite_query] 改写失败: {e}, 使用原始查询")
         return research_topic
 
+async def _retry_with_rewritten_query(
+    tool_calls: list,
+    observations: list,
+    rewritten_query: str,
+    tools_by_name: dict,
+    config: RunnableConfig,
+) -> list:
+    """用改写后的查询重跑搜索类工具，并替换对应位置的结果。
+
+    只替换 args 里的 queries 字段，其余字段原样保留；非搜索工具（如 think_tool）
+    的结果不动。
+
+    Args:
+        tool_calls: 本轮的工具调用列表，元素形如 {"name": ..., "args": {...}, "id": ...}
+        observations: 与 tool_calls 一一对应的执行结果
+        rewritten_query: 改写后的查询
+        tools_by_name: 工具名到工具对象的映射
+        config: 运行时配置
+
+    Returns:
+        替换后的结果列表，与 tool_calls 顺序一致
+    """
+    observations = list(observations)
+    for i, tc in enumerate(tool_calls):
+        if tc["name"] not in SEARCH_TOOL_NAMES:
+            continue
+        new_args = {**tc["args"], "queries": [rewritten_query]}
+        logger.info(f"[retry_with_rewritten_query] 重新搜索: tool={tc['name']}, query='{rewritten_query}'")
+        observations[i] = await execute_tool_safely(tools_by_name[tc["name"]], new_args, config)
+    return observations
+
+
 async def _classify_query(research_topic: str, config: RunnableConfig) -> str:
     # 模型初始化
     configurable = Configuration.from_runnable_config(config)
@@ -497,7 +532,7 @@ async def researcher_tools(
     # 对搜索结果进行上下文压缩
     observations = [
         await _compress_observation(obs, state["research_topic"], config)
-        if tc["name"] in ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
+        if tc["name"] in SEARCH_TOOL_NAMES
         else obs
         for obs, tc in zip(observations, tool_calls)
     ]
@@ -508,17 +543,9 @@ async def researcher_tools(
     if is_low_quality:
         logger.info(f"[researcher_tools] 检索质量不合格，触发查询改写重搜")
         rewritten_query = await _rewrite_query(state["research_topic"], config)
-        search_tools = ("tavily_search", "duckduckgo_search_tool", "local_knowledge_search")
-        observations = list(observations)  # tuple 转 list 才能赋值
-        for i, tc in enumerate(tool_calls):
-            if tc["name"] in search_tools:
-                # 覆盖 queries 字段：{"queries": ["Docker网络原理"]} → {"queries": ["改写后的查询"]}
-                new_args = {**tc["args"], "queries": [rewritten_query]}
-                # 重新执行搜索
-                logger.info(f"[researcher_tools] 重新搜索: tool={tc['name']}, query='{rewritten_query}'")
-                new_result = await execute_tool_safely(tools_by_name[tc["name"]], new_args, config)
-                # 替换旧结果
-                observations[i] = new_result
+        observations = await _retry_with_rewritten_query(
+            tool_calls, observations, rewritten_query, tools_by_name, config
+        )
         logger.info(f"[researcher_tools] 改写重搜完成，已替换搜索结果")
     # Create tool messages from execution results
     tool_outputs = [
