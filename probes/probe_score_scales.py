@@ -27,7 +27,8 @@ QUERIES = [
 def ensure_index():
     """确保 BM25 索引与 ChromaDB 就绪（build_index 内含一致性校验）。"""
     if kb._bm25_index is None:
-        folder = os.path.join(os.path.dirname(__file__), "knowledge_base")
+        # 本文件在 probes/ 下，知识库在仓库根目录
+        folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "knowledge_base")
         kb.build_index(kb.load_documents(folder), folder)
 
 

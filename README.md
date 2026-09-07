@@ -99,7 +99,7 @@ flowchart LR
 
 **代价**：丢掉了分数携带的置信度信息 —— 「排第一但分数很低」和「排第一且分数很高」在 RRF 里等价。
 
-**验证方式**：`probe_fusion_diff.py` 实测了 RRF 与「逐 query min-max 归一化 + 加权」两种方案的 top-k 重合度和平均名次位移。思路是**先测差异，再测优劣**：如果两者结果几乎重合，就不必为"谁更好"去建标注集。
+**验证方式**：`probes/probe_fusion_diff.py` 实测了 RRF 与「逐 query min-max 归一化 + 加权」两种方案的 top-k 重合度和平均名次位移。思路是**先测差异，再测优劣**：如果两者结果几乎重合，就不必为"谁更好"去建标注集。
 
 ### Parent-Child 分块：匹配粒度与上下文粒度解耦
 
@@ -177,13 +177,28 @@ BM25 索引（pickle 缓存）和 ChromaDB 是两套独立存储。如果只有�
 
 结论是：**缓存的代价不是内存，是失效时机。** 现在只缓存 client 和 embedding function，collection 每次取。
 
-### 4. LinUCB 的奖励一直打在同一个动作上（进行中）
+### 4. Command 路由的声明与实现不一致（已修，`0c22bf9` / `03b2911`）
+
+两个 bug，一次调查。
+
+`clarify_with_user` 用 `Command(goto=...)` 路由，却同时声明了一条静态边 `add_edge("clarify_with_user", "generate_outline")`。隔离实测：**即使节点返回 `Command(goto=END)`，静态边的目标依然执行，图不会终止。** 于是用户提了个模糊问题、本该收到澄清，实际收到的是基于未澄清问题生成的大纲确认 —— 澄清环节形同虚设。（只在 `allow_clarification=True` 时触发；web 入口硬设为 `False`，所以 UI 不受影响。）
+
+顺着查下去发现更大的问题：`generate_outline` 和 `evaluate_report` 也用 `Command` 路由，但**没有返回类型标注**。`get_graph()` 从 `START` 做可达性遍历，把没有标注的 `Command` 节点当成死胡同接到 `END` 并停止 —— 7 个节点里 4 个悬空，连显式写的 `add_edge` 都从图里消失，其中包括多轮补充研究那个循环 `evaluate_report → write_research_brief`。运行时不受影响，坏掉的是所有 `get_graph()` 的消费方：Studio、`draw_mermaid()`、任何对图的静态检查。
+
+两个实测发现（都记在测试的 docstring 里）：
+
+- `compile()` 只校验 `Literal` 里的目标是**已注册的节点**，不校验这个节点真的会跳过去。所以标注**写不全比不写更危险** —— 不写的图明显是断的，写错的图会画出一条永远走不到的假边、同时隐藏真实路径。运行时两种都不管。
+- `get_graph()` 把「静态边」和「`Command` 边」指向同一目标的情况**合并成一条无法区分的边**。所以"多了一条静态边"这个回归**在编译后的图上是隐形的** —— 只能查 `builder.edges`。
+
+`tests/test_graph_wiring.py` 用三个断言钉住这三种失效，每个都通过重新引入对应缺陷验证过会红。探针见 [`probes/`](probes/)。
+
+### 5. LinUCB 的奖励一直打在同一个动作上（进行中）
 
 `evaluate_report` 从 `AgentState` 读 `query_complexity` / `source_routing` 来决定奖励更新哪个动作。但这两个字段只存在于 researcher 子图的 `ResearcherState`，没有通过 `ResearcherOutputState` 透传回主图 —— `state.get()` 每次都拿到默认值，于是奖励永远落在 `both` 上，`local` / `web` 两个动作的参数矩阵保持初始值。
 
 外部看不出任何异常：`bandit_model.json` 在正常更新、`total_updates` 在正常递增、路由决策也在正常产出。**唯一的症状是学不到东西。**
 
-这是同一类问题的第四个形态：**子图状态隔离带来的静默数据丢失。** 修法和排期见 [ROADMAP](ROADMAP.md)。
+这是同一类问题的第五个形态：**子图状态隔离带来的静默数据丢失。** 修法和排期见 [ROADMAP](ROADMAP.md)。
 
 ---
 
@@ -201,8 +216,8 @@ BM25 索引（pickle 缓存）和 ChromaDB 是两套独立存储。如果只有�
 
 建一个可信的标注集要人工审阅，成本不低。所以先用两个不需要标注的探针确认"有没有必要标"：
 
-- **`probe_score_scales.py`** — 量化两路召回的分数量纲差异，以及 parent 块对 BM25 召回名额的挤占程度（向量路有 `type=child` 过滤，BM25 路没有，两路口径不一致，parent 在全库占 19.2%）。
-- **`probe_fusion_diff.py`** — 对比 RRF 与 min-max 加权两种融合的 top-k 重合度、第一名是否相同、平均名次位移。**如果两者的 top-5 几乎重合，就没必要为"谁更好"去建标注集。**
+- **`probes/probe_score_scales.py`** — 量化两路召回的分数量纲差异，以及 parent 块对 BM25 召回名额的挤占程度（向量路有 `type=child` 过滤，BM25 路没有，两路口径不一致，parent 在全库占 19.2%）。
+- **`probes/probe_fusion_diff.py`** — 对比 RRF 与 min-max 加权两种融合的 top-k 重合度、第一名是否相同、平均名次位移。**如果两者的 top-5 几乎重合，就没必要为"谁更好"去建标注集。**
 
 两个探针都用同一组三类查询（关键词型 / 概念型 / 库外型），覆盖两路各自的强弱以及"库里没有答案"的行为。
 
@@ -214,7 +229,7 @@ BM25 索引（pickle 缓存）和 ChromaDB 是两套独立存储。如果只有�
 
 ### 下一步
 
-在人工审阅后的查询集上跑「纯向量 / 纯 BM25 / RRF 混合 / 混合 + 重排」四档对比，算 Recall@k 与 MRR，并用同一集合交叉验证 `probe_fusion_diff.py` 的结论。
+在人工审阅后的查询集上跑「纯向量 / 纯 BM25 / RRF 混合 / 混合 + 重排」四档对比，算 Recall@k 与 MRR，并用同一集合交叉验证 `probes/probe_fusion_diff.py` 的结论。
 
 ---
 
@@ -279,6 +294,7 @@ uv run pytest tests/ -v
 ```
 
 - `test_rewrite_args.py` —— 不依赖网络和 LLM，任何时候都能跑
+- `test_graph_wiring.py` —— 同样无外部依赖；首次导入会拉起 torch，约十几秒
 - `test_kb_mode_parity.py` —— 需要 MCP 服务在线；未启动时 **skip 并打印原因和启动命令**，不静默通过
 
 尚未接 CI。
@@ -360,13 +376,19 @@ web/
 
 tests/
 ├── test_rewrite_args.py      # 改写重搜的参数替换（无网络依赖）
+├── test_graph_wiring.py      # Command 路由声明与图边集一致（无网络依赖）
 └── test_kb_mode_parity.py    # direct / mcp 工具契约一致性（需 MCP 服务）
 
 eval/
 └── make_queryset.py     # 检索评测查询集草稿生成器
 
-probe_score_scales.py    # 探针：两路召回的分数量纲与 parent 挤占
-probe_fusion_diff.py     # 探针：RRF vs min-max 加权的结果差异
+probes/                  # 测量脚本，不是测试 —— 见 probes/README.md
+├── probe_score_scales.py        # 两路召回的分数量纲与 parent 挤占
+├── probe_fusion_diff.py         # RRF vs min-max 加权的结果差异
+├── probe_command_vs_edge.py     # 静态边与 Command(goto) 并存时谁生效
+├── probe_graph_reachability.py  # 缺标注是否截断 get_graph() 的遍历
+├── probe_incomplete_literal.py  # Literal 漏列目标的后果
+└── probe_dedup.py               # get_graph() 是否合并静态边与 Command 边
 ```
 
 ---

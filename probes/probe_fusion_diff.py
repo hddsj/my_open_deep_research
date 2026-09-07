@@ -28,7 +28,8 @@ QUERIES = [
 
 def ensure_index():
     if kb._bm25_index is None:
-        folder = os.path.join(os.path.dirname(__file__), "knowledge_base")
+        # 本文件在 probes/ 下，知识库在仓库根目录
+        folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "knowledge_base")
         kb.build_index(kb.load_documents(folder), folder)
 
 
