@@ -128,7 +128,7 @@ async def clarify_with_user(
 
 async def generate_outline(
     state: AgentState, config: RunnableConfig
-):
+) -> Command[Literal["write_research_brief"]]:
     """Generate a research outline based on the user's request."""
     configurable = Configuration.from_runnable_config(config)
     research_model_config = {
@@ -729,7 +729,7 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         "messages": [AIMessage(content="Report generation failed after maximum retries")],
     }
 
-async def evaluate_report(state: AgentState, config: RunnableConfig):
+async def evaluate_report(state: AgentState, config: RunnableConfig) -> Command[Literal["__end__", "write_research_brief"]]:
     configurable = Configuration.from_runnable_config(config)
     research_loops = state.get("research_loops", 0)
 
