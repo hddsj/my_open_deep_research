@@ -49,7 +49,7 @@ state.get("source_routing", "both")
 1. 跑 `make_queryset.py` 生成草稿
 2. 人工审 20～30 条（改写措辞、剔除明显抄原文的），标 `reviewed: true`
 3. 在这个集合上分别跑「纯向量」「纯 BM25」「RRF 混合」「混合 + 重排」四档，算 Recall@k / MRR
-4. 顺手用同一个集合验证 `probe_fusion_diff.py` 的结论
+4. 顺手用同一个集合验证 `probes/probe_fusion_diff.py` 的结论
 
 ### 3. BM25 路与向量路召回口径不一致
 
@@ -59,7 +59,7 @@ state.get("source_routing", "both")
 
 parent 在全库占 19.2%（1528 / 7941），所以 BM25 实际贡献的 child 数量少于 `top_k`，两路在融合里的有效权重被静默打偏。
 
-`probe_score_scales.py` 已量化这一现象（包括「凑满 k 个 child 需要扫描多少条」）。
+`probes/probe_score_scales.py` 已量化这一现象（包括「凑满 k 个 child 需要扫描多少条」）。
 
 **修复方向**：BM25 取 top_k 时先过滤 `type == "child"`，凑满 `top_k` 再停。
 
@@ -131,17 +131,7 @@ Supervisor 用 `asyncio.gather` 并发派 3 个 researcher，但它们在本地�
 
 **修复方向**：`type != "research"` 的文档不计入触发计数；生成新摘要前先删同 topic 的旧摘要；`retrieve_memory` 加 `where={"type": "research"}`；去掉 collection 缓存。
 
-### 10. `clarify_with_user` 的路由声明与实现不符
-
-**成本** `S` · **症状可见性** 无
-
-返回类型标注是 `Command[Literal["write_research_brief", "__end__"]]`（`deep_researcher.py:76-77`），实际 `goto` 的却是 `generate_outline`；同时 `deep_researcher.py:1028` 还有一条同向的静态边 `add_edge("clarify_with_user", "generate_outline")`。
-
-Command 路由和静态边同时存在时的行为需要确认（LangGraph 会不会重复进入 `generate_outline`），无论如何这条静态边是多余的。
-
-**修复方向**：删掉静态边，修正 `Literal` 标注为实际的三个目标。
-
-### 11. Web 层缺少并发保护
+### 10. Web 层缺少并发保护
 
 **成本** `M` · **症状可见性** 低（单用户时不出现）
 
@@ -155,9 +145,11 @@ Command 路由和静态边同时存在时的行为需要确认（LangGraph 会�
 
 ## 尚未接入 CI
 
-`tests/` 下两个测试都能跑，但没有 workflow。`test_kb_mode_parity.py` 依赖 MCP 服务在线（未启动时 skip 并打印原因），接 CI 需要在 job 里先把服务拉起来。
+`tests/` 下三个测试都能跑，但没有 workflow。
 
-`test_rewrite_args.py` 无外部依赖，可以先单独接上。
+`test_rewrite_args.py` 和 `test_graph_wiring.py` 无外部依赖（不需要 API key，不联网），可以直接接上 —— 后者首次导入会拉起 torch，约十几秒。
+
+`test_kb_mode_parity.py` 依赖 MCP 服务在线（未启动时 skip 并打印原因），接 CI 需要在 job 里先把服务拉起来。
 
 ---
 
