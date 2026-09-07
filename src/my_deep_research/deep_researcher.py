@@ -74,7 +74,7 @@ SEARCH_TOOL_NAMES = ("tavily_search", "duckduckgo_search_tool", "local_knowledge
 
 async def clarify_with_user(
     state: AgentState, config: RunnableConfig
-) -> Command[Literal["write_research_brief", "__end__"]]:
+) -> Command[Literal["generate_outline", "__end__"]]:
     """Analyze user messages and ask clarifying questions if the research scope is unclear.
 
     Args:
@@ -1025,7 +1025,6 @@ deep_researcher_builder.add_node("final_report_generation", final_report_generat
 deep_researcher_builder.add_node("evaluate_report", evaluate_report)  
 
 deep_researcher_builder.add_edge(START, "clarify_with_user")
-deep_researcher_builder.add_edge("clarify_with_user", "generate_outline")
 deep_researcher_builder.add_edge("research_supervisor", "final_report_generation")
 deep_researcher_builder.add_edge("final_report_generation", "evaluate_report") 
 
