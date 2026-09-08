@@ -192,13 +192,25 @@ BM25 索引（pickle 缓存）和 ChromaDB 是两套独立存储。如果只有�
 
 `tests/test_graph_wiring.py` 用三个断言钉住这三种失效，每个都通过重新引入对应缺陷验证过会红。探针见 [`probes/`](probes/)。
 
-### 5. LinUCB 的奖励一直打在同一个动作上（进行中）
+### 5. BM25 候选混进了 parent，凑不够真正的 top_k 个 child（已修）
+
+向量路有 `where={"type": "child"}` 过滤，BM25 路原来直接 `scores.argsort()[-top_k:][::-1]` 切全库最高分的 `top_k` 个——parent 和 child 混在一起打分，parent 不是均匀分布、会连续聚集（实测某条查询排名 11~14 连续 4 个 parent），导致 BM25 实际贡献的 child 候选数量少于 `top_k`，两路在融合里的口径不一致。`search()` 从不报错、始终返回结果，只是候选池悄悄缺了几个。
+
+改成从完整排名（不再提前切片）逐条扫描，只收集 `type=child`，凑够 `top_k` 就停；候选池不够时自然返回较少数量而不报错——这是检索系统的标准行为，请求 top_k 但候选不足时返回真实数量，不该用低质量结果凑数。逻辑抽成纯函数 `_collect_top_child_indices`，不碰真实索引，可以直接单测。
+
+**用实测确认了修复的真实影响，不只是"逻辑对了"**：对比改前改后的最终 top5，parent 污染轻的查询（未过滤 top10 只混 1 个 parent）没有变化——缺口没能挤进最终排名，符合预期；污染重的查询（混 3 个 parent）top5 逐位置比较只有 3/5 相同，证明修复确实改变了融合结果。
+
+副产品：验证过程中还实测到一个不属于本次修复范围的问题——两个不同来源的 child 反查到同一个 parent 后，最终结果出现了两条内容相同的记录，因为去重键是在反查 parent **之前**按 child 原文算的。这是去重键选错了阶段，记在 [ROADMAP](ROADMAP.md) 里等排期。
+
+`tests/test_bm25_child_filter.py` 四个断言：全是 child 的基准情况、parent 连续聚集时被正确跳过、候选不够时不崩溃、扫描计数精确匹配实测数字。每条都验证过重新引入对应缺陷会红。
+
+### 6. LinUCB 的奖励一直打在同一个动作上（进行中）
 
 `evaluate_report` 从 `AgentState` 读 `query_complexity` / `source_routing` 来决定奖励更新哪个动作。但这两个字段只存在于 researcher 子图的 `ResearcherState`，没有通过 `ResearcherOutputState` 透传回主图 —— `state.get()` 每次都拿到默认值，于是奖励永远落在 `both` 上，`local` / `web` 两个动作的参数矩阵保持初始值。
 
 外部看不出任何异常：`bandit_model.json` 在正常更新、`total_updates` 在正常递增、路由决策也在正常产出。**唯一的症状是学不到东西。**
 
-这是同一类问题的第五个形态：**子图状态隔离带来的静默数据丢失。** 修法和排期见 [ROADMAP](ROADMAP.md)。
+这是同一类问题的第六个形态：**子图状态隔离带来的静默数据丢失。** 修法和排期见 [ROADMAP](ROADMAP.md)。
 
 ---
 
@@ -216,7 +228,7 @@ BM25 索引（pickle 缓存）和 ChromaDB 是两套独立存储。如果只有�
 
 建一个可信的标注集要人工审阅，成本不低。所以先用两个不需要标注的探针确认"有没有必要标"：
 
-- **`probes/probe_score_scales.py`** — 量化两路召回的分数量纲差异，以及 parent 块对 BM25 召回名额的挤占程度（向量路有 `type=child` 过滤，BM25 路没有，两路口径不一致，parent 在全库占 19.2%）。
+- **`probes/probe_score_scales.py`** — 量化两路召回的分数量纲差异，以及 parent 块对 BM25 召回名额的挤占程度（parent 在全库占 19.2%）。这个探针本身就是「静默失效」第 6 条的起点——它测出的"BM25 未过滤 top10 混了几个 parent""凑满 k 个 child 要扫多少条"，直接指向了 BM25 路缺 `type=child` 过滤这个 bug，已修复（见上文）。
 - **`probes/probe_fusion_diff.py`** — 对比 RRF 与 min-max 加权两种融合的 top-k 重合度、第一名是否相同、平均名次位移。**如果两者的 top-5 几乎重合，就没必要为"谁更好"去建标注集。**
 
 两个探针都用同一组三类查询（关键词型 / 概念型 / 库外型），覆盖两路各自的强弱以及"库里没有答案"的行为。
@@ -295,6 +307,8 @@ uv run pytest tests/ -v
 
 - `test_rewrite_args.py` —— 不依赖网络和 LLM，任何时候都能跑
 - `test_graph_wiring.py` —— 同样无外部依赖；首次导入会拉起 torch，约十几秒
+- `test_research_limits.py` —— 同上，无外部依赖
+- `test_bm25_child_filter.py` —— 无外部依赖；首次导入会拉起整套知识库依赖（pymupdf/chromadb/sentence-transformers），约一分钟
 - `test_kb_mode_parity.py` —— 需要 MCP 服务在线；未启动时 **skip 并打印原因和启动命令**，不静默通过
 
 尚未接 CI。
@@ -375,9 +389,11 @@ web/
 └── index.html           # 前端界面
 
 tests/
-├── test_rewrite_args.py      # 改写重搜的参数替换（无网络依赖）
-├── test_graph_wiring.py      # Command 路由声明与图边集一致（无网络依赖）
-└── test_kb_mode_parity.py    # direct / mcp 工具契约一致性（需 MCP 服务）
+├── test_rewrite_args.py       # 改写重搜的参数替换（无网络依赖）
+├── test_graph_wiring.py       # Command 路由声明与图边集一致（无网络依赖）
+├── test_research_limits.py    # researcher 停止条件：轮次/工具调用总数（无网络依赖）
+├── test_bm25_child_filter.py  # BM25 候选只收集 child（无网络依赖）
+└── test_kb_mode_parity.py     # direct / mcp 工具契约一致性（需 MCP 服务）
 
 eval/
 └── make_queryset.py     # 检索评测查询集草稿生成器

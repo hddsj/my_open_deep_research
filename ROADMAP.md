@@ -18,6 +18,18 @@
 
 `tests/test_research_limits.py` 四个断言覆盖：两道防线各自单独触发、都不触发时继续、`>=` 边界（累计恰好等于上限也算超限，不能等到超过才停）。每条都验证过重新引入对应缺陷会红：`or`→`and` 时两条依赖"任一触发"的断言红；`>=`→`>` 时只有边界那条红。
 
+### BM25 路补上了 `type=child` 过滤
+
+原来 `scores.argsort()[-top_k:][::-1]` 直接从全库（parent+child 混着）切最高的 `top_k` 个，parent 不是均匀分布、会连续聚集（实测某条查询排名 11~14 连续 4 个 parent），导致真正参与融合的 child 候选数量少于 `top_k`。
+
+改用扫描收集：从完整排名（不再提前切片）从高到低遍历，只收集 `type=child`，凑够 `top_k` 就停；候选池不够时自然返回较少数量，不报错——这是检索系统的标准行为（Elasticsearch/Dify 等社区讨论一致）。逻辑抽成纯函数 `_collect_top_child_indices`（`knowledge_base.py`），不碰真实索引，可以直接单测。融合阶段原有的 `if meta.get("type") == "parent": continue` 已删除——收集阶段已经保证只有 child，这行成了死代码。
+
+**实测确认修复生效**：用同一份索引对比改前改后的最终 top5——parent 污染轻的查询（1 个 parent）无变化，符合预期（缺口没能挤进最终排名）；污染重的查询（3 个 parent）top5 逐位置比较只有 3/5 相同，证明修复真的改变了融合结果，不是空转。
+
+`tests/test_bm25_child_filter.py` 四个断言：全是 child 的基准情况、parent 连续聚集时被正确跳过、候选不够时不崩溃、扫描计数精确匹配实测数字（15）。每条都验证过重新引入对应缺陷会红。
+
+副产品：验证过程中发现了 P2-7「去重键」问题的具体实例——两个不同来源的 child 反查到同一个 parent 后，最终结果里出现两条内容相同的记录，因为去重发生在反查之前。已补进对应条目，不在本次修复范围内。
+
 ---
 
 ## P0 — 功能实际未生效
@@ -63,19 +75,7 @@ state.get("source_routing", "both")
 3. 在这个集合上分别跑「纯向量」「纯 BM25」「RRF 混合」「混合 + 重排」四档，算 Recall@k / MRR
 4. 顺手用同一个集合验证 `probes/probe_fusion_diff.py` 的结论
 
-### 3. BM25 路与向量路召回口径不一致
-
-**成本** `S` · **症状可见性** 无
-
-向量路有 `where={"type": "child"}` 过滤（`knowledge_base.py:363`），BM25 路对全库打分后取 `top_k`（`knowledge_base.py:370`），parent 与 child 混在一起，直到融合阶段（`knowledge_base.py:387`）才被跳过。
-
-parent 在全库占 19.2%（1528 / 7941），所以 BM25 实际贡献的 child 数量少于 `top_k`，两路在融合里的有效权重被静默打偏。
-
-`probes/probe_score_scales.py` 已量化这一现象（包括「凑满 k 个 child 需要扫描多少条」）。
-
-**修复方向**：BM25 取 top_k 时先过滤 `type == "child"`，凑满 `top_k` 再停。
-
-### 4. Corrective RAG 的质量判定依赖关键词计数
+### 3. Corrective RAG 的质量判定依赖关键词计数
 
 **成本** `S` · **症状可见性** 低
 
@@ -83,7 +83,7 @@ parent 在全库占 19.2%（1528 / 7941），所以 BM25 实际贡献的 child �
 
 **修复方向**：改用 `with_structured_output`，让模型返回 `list[bool]` 或每条结果的 id + 判定，长度对不上直接报错。
 
-### 5. Docker 未挂载 BM25 缓存
+### 4. Docker 未挂载 BM25 缓存
 
 **成本** `S` · **症状可见性** 高（换机器就撞上）
 
@@ -93,7 +93,7 @@ parent 在全库占 19.2%（1528 / 7941），所以 BM25 实际贡献的 child �
 
 **修复方向**：给 `x-common` 的 `volumes` 加一条 `./bm25_cache.pkl:/app/bm25_cache.pkl`。注意宿主机上文件不存在时 Docker 会创建成目录，需要先 `touch` 或改成挂载一个 `cache/` 目录并调整 `cache_path`。后者更干净。
 
-### 6. `max_researcher_iterations` 的 UI 控件名不副实
+### 5. `max_researcher_iterations` 的 UI 控件名不副实
 
 **成本** `S` · **症状可见性** 中（演示时会被发现）
 
@@ -107,7 +107,7 @@ parent 在全库占 19.2%（1528 / 7941），所以 BM25 实际贡献的 child �
 
 ## P2 — 正确性没问题，但工程上不干净
 
-### 7. `search()` 是同步阻塞函数，挂在 async 工具下
+### 6. `search()` 是同步阻塞函数，挂在 async 工具下
 
 **成本** `M` · **症状可见性** 低（只表现为慢）
 
@@ -117,7 +117,7 @@ Supervisor 用 `asyncio.gather` 并发派 3 个 researcher，但它们在本地�
 
 **修复方向**：`asyncio.to_thread` 包一层，或者引入线程池。注意 `_bm25_index` / `_reranker` / `_semantic_chunker` 都是模块级全局单例，多线程访问需要确认 `BM25Okapi.get_scores` 和 `CrossEncoder.predict` 的线程安全性（后者底层是 PyTorch，推理本身安全，但要避免同时加载）。
 
-### 8. 融合与重排粒度不一致，且有 N+1 查询
+### 7. 融合与重排粒度不一致，且有 N+1 查询
 
 **成本** `M` · **症状可见性** 无
 
@@ -125,11 +125,11 @@ Supervisor 用 `asyncio.gather` 并发派 3 个 researcher，但它们在本地�
 
 - **粒度**：RRF 用 child 文本的排名融合，之后把 `item["document"]` 换成 parent 全文，Cross-Encoder 对 **parent** 打分。两级排序的输入不是同一个东西。
 - **N+1**：parent 反查是逐条 `collection.get(ids=[parent_id])` 循环（`knowledge_base.py:398-404`），应该批量 `get(ids=[...])` 一次取回。
-- **去重键**：`key = doc[:100]`。前 100 字相同的不同 chunk 会互相吞掉 —— 技术书里章节开头的模板化段落很容易撞。
+- **去重键**：`key = doc[:100]`，键是在反查 parent **之前**算的。两个不同的 child（原文不同，所以没被当成重复）反查后可能指向**同一个 parent**，最终结果里就会出现两条内容完全相同的记录——修「BM25 候选混进 parent」那个 bug（见上方「已完成」）时实测过一次：查询"容器之间怎么互相通信"，top5 里出现了两条 page=140 的相同内容。反过来，前 100 字恰好相同的不同 chunk（技术书章节开头的模板化段落很容易撞）也会被误判成同一条，在反查前就被错误合并。两个方向都是同一个根因：**去重键选错了阶段**，该在反查之后按最终展示内容（或 parent_id）去重，不是在反查之前按 child 原文去重。
 
-**修复方向**：去重键换成 chunk id；parent 反查批量化；粒度问题需要先做决定 —— 是在 child 上重排后再取 parent（重排更准，但 LLM 拿到的上下文没被评估过），还是保持现状。这个决定应该等 P1-2 的评测集就绪后用数据回答。
+**修复方向**：去重键换成反查后的 parent_id（或最终 document 内容）；parent 反查批量化；粒度问题需要先做决定 —— 是在 child 上重排后再取 parent（重排更准，但 LLM 拿到的上下文没被评估过），还是保持现状。这个决定应该等 P1-2 的评测集就绪后用数据回答。
 
-### 9. 研究记忆的分层摘要会无限累积
+### 8. 研究记忆的分层摘要会无限累积
 
 **成本** `M` · **症状可见性** 低（渐进劣化）
 
@@ -143,7 +143,7 @@ Supervisor 用 `asyncio.gather` 并发派 3 个 researcher，但它们在本地�
 
 **修复方向**：`type != "research"` 的文档不计入触发计数；生成新摘要前先删同 topic 的旧摘要；`retrieve_memory` 加 `where={"type": "research"}`；去掉 collection 缓存。
 
-### 10. Web 层缺少并发保护
+### 9. Web 层缺少并发保护
 
 **成本** `M` · **症状可见性** 低（单用户时不出现）
 
@@ -157,9 +157,9 @@ Supervisor 用 `asyncio.gather` 并发派 3 个 researcher，但它们在本地�
 
 ## 尚未接入 CI
 
-`tests/` 下三个测试都能跑，但没有 workflow。
+`tests/` 下五个测试都能跑，但没有 workflow。
 
-`test_rewrite_args.py` 和 `test_graph_wiring.py` 无外部依赖（不需要 API key，不联网），可以直接接上 —— 后者首次导入会拉起 torch，约十几秒。
+`test_rewrite_args.py`、`test_graph_wiring.py`、`test_research_limits.py`、`test_bm25_child_filter.py` 无外部依赖（不需要 API key，不联网），可以直接接上——后三者首次导入都会拉起 torch 或整套 knowledge_base 依赖，约十几秒到一分钟不等。
 
 `test_kb_mode_parity.py` 依赖 MCP 服务在线（未启动时 skip 并打印原因），接 CI 需要在 job 里先把服务拉起来。
 
@@ -169,4 +169,4 @@ Supervisor 用 `asyncio.gather` 并发派 3 个 researcher，但它们在本地�
 
 根目录还有约 15 个 `test_*.py`（`test_ranking.py`、`test_crag.py`、`test_retrieval_v2.py` 等），是开发期的手动验证脚本，不是 pytest 能收集的测试，已被 `.gitignore` 排除。
 
-要么删掉，要么挑几个有价值的迁进 `tests/` 改写成真断言 —— 尤其是 `test_ranking.py` 和 `test_retrieval_v2.py`，它们覆盖的正是 P1-3 和 P2-8 涉及的检索链路。
+要么删掉，要么挑几个有价值的迁进 `tests/` 改写成真断言 —— 尤其是 `test_ranking.py` 和 `test_retrieval_v2.py`，它们覆盖的正是 P2-7 涉及的检索链路。
