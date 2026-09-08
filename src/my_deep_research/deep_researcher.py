@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Literal
 
+
 logger = logging.getLogger(__name__)
 
 from langchain.chat_models import init_chat_model
@@ -477,6 +478,39 @@ async def _classify_query(research_topic: str, config: RunnableConfig) -> str:
         logger.warning(f"[classify_query] 分类失败: {e}, 默认返回'medium | both'")
         return "medium", "both"
 
+def _check_research_limits(
+    state: ResearcherState,
+    tool_calls: list,
+    princlple: dict,
+    complex_classify: str,
+    configurable: Configuration,
+) -> tuple[bool, bool, bool, int]:
+    """判断本轮工具执行结束后，researcher 是否该被强制停止。
+
+    两道独立防线，任一触发即停（纵深防御，不是单一限制）：
+    - 轮次防线：按查询复杂度分配的搜索轮次上限（simple/medium/complex）
+    - 工具调用总数防线：兜底上限，独立于轮次。正常情况下轮次防线会先触发；
+      只有异常情况（例如某一轮并行发起了远超预期的工具调用）才会先摸到这道线。
+
+    不碰网络、不碰 LLM、不碰 config 之外的任何外部状态，可以直接单测。
+
+    Args:
+        state: 当前 researcher 状态，读取 tool_call_iterations / total_tool_calls
+        tool_calls: 本轮工具调用列表，用于计入本轮的调用数
+        princlple: 复杂度 -> 允许轮次数的映射
+        complex_classify: 本次查询的复杂度分类
+        configurable: 运行时配置，读取 max_react_tool_calls
+
+    Returns:
+        (exceeded, iterations_exceeded, tool_calls_exceeded, new_total_tool_calls)
+    """
+    iterations_exceeded = state.get("tool_call_iterations", 0) >= princlple.get(complex_classify, 3)
+    new_total_tool_calls = state.get("total_tool_calls", 0) + len(tool_calls)
+    tool_calls_exceeded = new_total_tool_calls >= configurable.max_react_tool_calls
+    exceeded = iterations_exceeded or tool_calls_exceeded
+    return exceeded, iterations_exceeded, tool_calls_exceeded, new_total_tool_calls
+
+
 async def researcher_tools(
     state: ResearcherState, config: RunnableConfig
 ) -> Command[Literal["researcher", "compress_research"]]:
@@ -558,26 +592,32 @@ async def researcher_tools(
     ]
 
     # Step 3: Check exit conditions
-    exceeded_iterations = (
-        state.get("tool_call_iterations", 0) >= princlple.get(complex_classify, 3)
+    exceeded, iterations_exceeded, tool_calls_exceeded, new_total_tool_calls = (
+        _check_research_limits(state, tool_calls, princlple, complex_classify, configurable)
     )
 
-    if exceeded_iterations:
+    if exceeded:
+        logger.info(
+            f"[researcher_tools] 强制停止: 轮次超限={iterations_exceeded} "
+            f"(轮次 {state.get('tool_call_iterations', 0)}/{princlple.get(complex_classify, 3)}), "
+            f"工具调用数超限={tool_calls_exceeded} "
+            f"(累计 {new_total_tool_calls}/{configurable.max_react_tool_calls})"
+        )
         return Command(
             goto="compress_research",
             update={"researcher_messages": tool_outputs,
-             "total_tool_calls": state.get("total_tool_calls", 0) + len(tool_calls),
+             "total_tool_calls": new_total_tool_calls,
              "rewrite_count": state.get("rewrite_count", 0) + (1 if is_low_quality else 0),
-             "forced_stop": exceeded_iterations},
+             "forced_stop": exceeded},
         )
 
     # Continue research loop
     return Command(
         goto="researcher",
         update={"researcher_messages": tool_outputs,
-        "total_tool_calls": state.get("total_tool_calls", 0) + len(tool_calls),
+        "total_tool_calls": new_total_tool_calls,
         "rewrite_count": state.get("rewrite_count", 0) + (1 if is_low_quality else 0),
-        "forced_stop": exceeded_iterations},
+        "forced_stop": exceeded},
     )
 
 

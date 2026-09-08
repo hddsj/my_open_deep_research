@@ -63,8 +63,12 @@ class Configuration(BaseModel):
         description="Maximum number of iterations for each researcher"
     )
     max_react_tool_calls: int = Field(
-        default=3,
-        description="Maximum number of tool calls a researcher can make before being forced to stop"
+        default=18,
+        description=(
+            "Maximum number of total tool calls a researcher can make across all "
+            "rounds before being forced to stop. Independent safety ceiling, separate "
+            "from the per-complexity round limit — either one can trigger the stop."
+        )
     )
     # Research Configuration
     max_supervisor_iterations: int = Field(
