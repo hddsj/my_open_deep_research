@@ -340,6 +340,36 @@ def build_index(documents,folder_path):
     }, open(cache_path, "wb"))
     return collection
 
+def _collect_top_child_indices(scores_index, metadatas, top_k):
+    """从按分数排好序的下标列表里，只收集 type=child 的，凑够 top_k 个就停。
+
+    BM25 索引里 parent 和 child 混在一起打分，parent 不是均匀分布的，可能连续
+    聚集（比如排名 11~14 连续 4 个都是 parent），所以不能直接切一个固定窗口，
+    必须边扫边判断，扫到数组尽头都凑不够就返回当前收集到的这些——这是正常情况，
+    不是异常（候选池本身可能就没那么多 child）。
+
+    纯逻辑，不碰 BM25 索引对象、不碰网络，只吃排好序的下标和 metadata 列表，
+    可以直接单测。
+
+    Args:
+        scores_index: 按分数从高到低排好序的下标数组（比如 scores.argsort()[::-1]）
+        metadatas: 下标对应的 metadata 列表，每项形如 {"type": "child"/"parent", ...}
+        top_k: 最多收集几个 child
+
+    Returns:
+        (child_indices, scanned): 收集到的 child 下标列表（可能少于 top_k），
+        以及为此扫描了多少条（parent 也算扫描过，只是不计入结果）
+    """
+    child_indices, scanned = [], 0
+    for i in scores_index:
+        scanned += 1
+        if metadatas[i]["type"] == "child":
+            child_indices.append(i)
+            if len(child_indices) == top_k:
+                break
+    return child_indices, scanned
+
+
 def search(query, top_k):
     """
     Search the knowledge base for relevant documents.
@@ -365,10 +395,12 @@ def search(query, top_k):
 
     tokenized_query = list(jieba.cut(query))
     # 每个文本块的得分
-    scores = _bm25_index.get_scores(tokenized_query)  
-    # 取最高的 k 个索引
-    top_indices = scores.argsort()[-top_k:][::-1]
-    
+    scores = _bm25_index.get_scores(tokenized_query)
+    scores_index = scores.argsort()[::-1]
+    # 只取 child，凑够 top_k 个
+    child_top, scanned = _collect_top_child_indices(scores_index, _bm25_metadatas, top_k)
+
+
     # RRF 合并 (Reciprocal Rank Fusion)
     k = 60
     merged = {}
@@ -381,11 +413,9 @@ def search(query, top_k):
         merged[key]["score"] += 1 / (k + rank + 1)
 
     # BM25 结果 RRF 分数
-    for rank, idx in enumerate(top_indices):
+    for rank, idx in enumerate(child_top):
         doc = _bm25_chunks[idx]
         meta = _bm25_metadatas[idx]
-        if meta.get("type") == "parent":  # 跳过 parent
-            continue
         key = doc[:100]
         if key not in merged:
             merged[key] = {"document": doc, "metadata": meta, "score": 0}
