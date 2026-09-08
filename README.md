@@ -351,7 +351,7 @@ Transport 选 **Streamable HTTP**，URL 填 `http://127.0.0.1:8000/mcp`，连接
 **两个需要注意的语义**：
 
 - `max_researcher_iterations`（默认 5）**只被写进 Supervisor 的 prompt 文本**，是给模型的软约束，不是代码硬限制。单个 researcher 的实际轮次上限由复杂度分类决定（simple 2 / medium 3 / complex 4），硬编码在 `researcher_tools`。Web 界面把它做成了可调控件，但调它只改 prompt 文本 —— 名不副实，待修。
-- `max_react_tool_calls`（默认 3）**当前没有被任何代码引用**，是待清理的遗留配置。
+- `max_react_tool_calls`（默认 18）是一道独立于轮次上限的**兜底**防线，卡的是工具调用**总数**而不是轮次——一轮里 LLM 可能并行发起多个工具调用，轮次没到但调用总数异常时，轮次那道防线管不住，这道线才顶上。默认值按 `complex` 档正常预估（4 轮 × 每轮 3 个工具调用 = 12）留出 1.5 倍余量定的，避免它在正常情况下比轮次上限先触发，变成事实上的主限制。
 
 ---
 
